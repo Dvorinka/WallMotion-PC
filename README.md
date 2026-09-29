@@ -54,7 +54,7 @@ Built with PyInstaller (`--onefile --windowed`), ~65 MB, needs no Python install
 
 ```bash
 pip install pyinstaller
-python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --noconfirm main.py
+python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --add-data "locales;locales" --noconfirm main.py
 ```
 
 ### Autostart with Windows
@@ -132,7 +132,7 @@ Sbalené přes PyInstaller (`--onefile --windowed`), cca 65 MB, nepotřebuje Pyt
 
 ```bash
 pip install pyinstaller
-python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --noconfirm main.py
+python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --add-data "locales;locales" --noconfirm main.py
 ```
 
 ### Autostart s Windows

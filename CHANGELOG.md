@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Open-source project files: MIT license, contributing guide, code of
   conduct, security policy, issue/PR templates, CI and release workflows.
+- Platform paths helper (`wallmotion/paths.py`): XDG directories
+  (`~/.config`, `~/.local/share`, `~/.local/state`) on Linux, legacy
+  locations kept on Windows.
+- UI strings extracted into locale files (`locales/cs.json`,
+  `locales/en.json`) loaded by `wallmotion/i18n.py`.
 
 ## [1.0.0] - 2026-09-14
 

@@ -18,7 +18,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 - [x] **XDG paths helper** (`paths.py`) — `~/.config`, `~/.local/share`,
   `~/.local/state` on Linux; keep current paths on Windows.
   Spec: `docs/STACK_ANALYSIS.md` appendix §7.
-- [ ] ⭐ **Extract `STRINGS` into locale JSON files** (`locales/cs.json`,
+- [x] ⭐ **Extract `STRINGS` into locale JSON files** (`locales/cs.json`,
   `locales/en.json`) — makes the i18n actually extensible and the split cleaner.
 
 ## P2 — Platforms & core features
