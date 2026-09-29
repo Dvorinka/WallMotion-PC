@@ -15,7 +15,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   `docs/STACK_ANALYSIS.md` appendix §4.
 - [ ] ⭐ **Translate code comments to English** during the split (README stays
   bilingual; code becomes English).
-- [ ] **XDG paths helper** (`paths.py`) — `~/.config`, `~/.local/share`,
+- [x] **XDG paths helper** (`paths.py`) — `~/.config`, `~/.local/share`,
   `~/.local/state` on Linux; keep current paths on Windows.
   Spec: `docs/STACK_ANALYSIS.md` appendix §7.
 - [ ] ⭐ **Extract `STRINGS` into locale JSON files** (`locales/cs.json`,

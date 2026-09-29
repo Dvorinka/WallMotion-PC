@@ -5,14 +5,19 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-import tempfile
 
-DEBUG_LOG = os.path.join(tempfile.gettempdir(), "live_wallpaper_debug.log")
+from wallmotion.paths import log_path
+
+DEBUG_LOG = str(log_path())
 
 
 def debug_log(msg: str) -> None:
     try:
         import datetime
+        try:
+            os.makedirs(os.path.dirname(DEBUG_LOG), exist_ok=True)
+        except Exception:
+            pass
         ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         with open(DEBUG_LOG, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {msg}\n")
@@ -63,15 +68,7 @@ def _quiet_ffmpeg(level: int = 8) -> bool:
 
 
 def _app_base_dir() -> str:
-    """Adresar se spustitelnym souborem (u EXE) nebo se zdrojakem.
+    """App base dir (delegates to wallmotion.paths, kept for compatibility)."""
+    from wallmotion.paths import _app_base_dir as _base
 
-    U zmrazeneho EXE (onefile) se nesmi pouzit _MEIPASS (docasny rozbalovaci
-    adresar) - videa patri vedle EXE. Ze zdrojaku vedle repozitare.
-    """
-    try:
-        if getattr(sys, "frozen", False):
-            return os.path.dirname(os.path.abspath(sys.executable))
-    except Exception:
-        pass
-    # wallmotion/utils.py -> koren repozitare (kde lezi main.py)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return str(_base())

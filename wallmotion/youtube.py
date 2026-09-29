@@ -9,9 +9,9 @@ import urllib.parse
 
 from PySide6.QtCore import QThread, Signal
 
-from wallmotion.utils import _app_base_dir
+from wallmotion.paths import downloads_dir
 
-YT_DIR = os.path.join(_app_base_dir(), "downloads")
+YT_DIR = str(downloads_dir())
 
 # F1: pouzivat smi jen http(s) odkazy na zname YouTube domeny.
 MAX_YT_URL_LENGTH = 2048

@@ -379,6 +379,7 @@ class MainWindow(QMainWindow):
 
     def _save_config(self):
         try:
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump({
                     "last_path": self.selected_path,
@@ -673,6 +674,11 @@ def main():
     except Exception:
         pass
     _quiet_ffmpeg()
+    try:
+        from wallmotion.paths import ensure_dirs
+        ensure_dirs()
+    except Exception:
+        pass
     try:
         with open(DEBUG_LOG, "w", encoding="utf-8") as f:
             f.write("=== Live Wallpaper start ===\n")
