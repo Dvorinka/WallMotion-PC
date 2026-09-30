@@ -11,6 +11,8 @@
   "mute": "Mute video sound",
   "open_folder": "Open videos folder",
   "open_tray": "Open",
+  "pause_battery": "Pause video on battery power",
+  "pause_fullscreen": "Pause video when a fullscreen app runs",
   "quit_tray": "Quit",
   "ready": "Ready.",
   "restored": "Original wallpaper restored.",

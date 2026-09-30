@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   locations kept on Windows.
 - UI strings extracted into locale files (`locales/cs.json`,
   `locales/en.json`) loaded by `wallmotion/i18n.py`.
+- Auto-pause rules: video pauses when a fullscreen app runs (games)
+  and optionally on battery power; both checkboxes in the UI,
+  remembered between launches.
 
 ## [1.0.0] - 2026-09-14
 

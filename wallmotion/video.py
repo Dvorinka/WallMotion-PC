@@ -11,6 +11,13 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideo
 from PySide6.QtWidgets import QWidget
 
 from wallmotion import screens
+from wallmotion.autopause import (
+    POLL_INTERVAL_MS,
+    RESUME_AFTER_CLEAN_POLLS,
+    is_fullscreen_app_active,
+    is_on_battery,
+    should_pause,
+)
 from wallmotion.utils import _quiet_ffmpeg, debug_log
 from wallmotion.win32 import (
     _BLACKNESS,
@@ -51,7 +58,9 @@ class VideoWallpaperWindow(QWidget):
 
     failed = Signal(str)
 
-    def __init__(self, video_path: str, muted: bool = True, volume: float = 0.3):
+    def __init__(self, video_path: str, muted: bool = True, volume: float = 0.3,
+                 auto_pause_fullscreen: bool = True,
+                 auto_pause_battery: bool = False):
         super().__init__()
         # Bez ramecku, bez focusu, bez aktivace - nesmi krast kliky/focus.
         # Zadny layout ani potomek: cele okno je platno, maluje se pres GDI.
@@ -67,6 +76,12 @@ class VideoWallpaperWindow(QWidget):
         self.video_path = video_path
         self._muted = bool(muted)
         self._volume = max(0.0, min(1.0, float(volume)))
+        # Auto-pause rules (fullscreen app / battery). Timer starts in start().
+        self._pause_on_fullscreen = bool(auto_pause_fullscreen)
+        self._pause_on_battery = bool(auto_pause_battery)
+        self._autopause_timer = None
+        self._autopaused = False
+        self._clean_polls = 0
 
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
@@ -130,6 +145,89 @@ class VideoWallpaperWindow(QWidget):
                 self.audio_output.setVolume(self._volume)
         except Exception:
             pass
+
+    def set_auto_pause(self, fullscreen: bool, battery: bool) -> None:
+        """Change auto-pause rules live (checkboxes in MainWindow)."""
+        self._pause_on_fullscreen = bool(fullscreen)
+        self._pause_on_battery = bool(battery)
+        self._clean_polls = 0
+        try:
+            if self._pause_on_fullscreen or self._pause_on_battery:
+                self._start_autopause_timer()
+            else:
+                self._stop_autopause_timer()
+                if self._autopaused:
+                    self._resume_playback("rules-off")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: set_auto_pause vyjimka: {e!r}")
+
+    def _start_autopause_timer(self) -> None:
+        try:
+            if self._autopause_timer is None:
+                self._autopause_timer = QTimer(self)
+                self._autopause_timer.timeout.connect(self._autopause_tick)
+            if not self._autopause_timer.isActive():
+                self._autopause_timer.start(POLL_INTERVAL_MS)
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: start timeru selhalo: {e!r}")
+
+    def _stop_autopause_timer(self) -> None:
+        try:
+            if self._autopause_timer is not None:
+                self._autopause_timer.stop()
+        except Exception:
+            pass
+
+    def _pause_playback(self, reason: str) -> None:
+        try:
+            self.player.pause()
+            self._autopaused = True
+            self._clean_polls = 0
+            debug_log(f"AUTOPAUSE: pauza ({reason})")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: pause selhalo: {e!r}")
+
+    def _resume_playback(self, reason: str) -> None:
+        try:
+            self.player.play()
+            self._autopaused = False
+            self._clean_polls = 0
+            debug_log(f"AUTOPAUSE: pokracuji ({reason})")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: play selhalo: {e!r}")
+
+    def _autopause_tick(self) -> None:
+        """Poll sensors every POLL_INTERVAL_MS. Pause at once, resume only
+        after RESUME_AFTER_CLEAN_POLLS clean polls (no alt-tab flapping)."""
+        try:
+            if not (self._pause_on_fullscreen or self._pause_on_battery):
+                return
+            if self._canvas == 0:
+                return  # already stopped
+            try:
+                fullscreen = (
+                    is_fullscreen_app_active() if self._pause_on_fullscreen else False
+                )
+                battery = is_on_battery() if self._pause_on_battery else False
+            except Exception:
+                return  # sensor failure: keep current state, try next poll
+            want_pause = should_pause(
+                fullscreen, battery,
+                pause_on_fullscreen=self._pause_on_fullscreen,
+                pause_on_battery=self._pause_on_battery,
+            )
+            if want_pause:
+                if not self._autopaused:
+                    self._pause_playback(
+                        f"fullscreen={fullscreen} battery={battery}"
+                    )
+                return
+            if self._autopaused:
+                self._clean_polls += 1
+                if self._clean_polls >= RESUME_AFTER_CLEAN_POLLS:
+                    self._resume_playback("clean")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: tick vyjimka: {e!r}")
 
     def _on_player_error(self, error, error_string):
         debug_log(f"PLAYER ERROR: {error} | {error_string}")
@@ -255,6 +353,8 @@ class VideoWallpaperWindow(QWidget):
         self.player.setSource(QUrl.fromLocalFile(self.video_path))
         self.player.play()
         debug_log("START: play() zavolano -> OK")
+        if self._pause_on_fullscreen or self._pause_on_battery:
+            self._start_autopause_timer()
         # Watchdog: kdyz do 8 s neprijde ani snimek (nedejboze nepodporovany
         # kodek typu AV1 - prehravac se zasekne v bufferingu bez chyby),
         # platno zase zrusime, at nezustane svitit naprazdno.
@@ -518,6 +618,8 @@ class VideoWallpaperWindow(QWidget):
             f"STOP: frames={self._frames} skipped={self._skipped} "
             f"blits_ok={self._blits_ok} blit_fail={self._blit_fail}"
         )
+        self._stop_autopause_timer()
+        self._autopaused = False
         try:
             self.player.stop()
         except Exception:

@@ -235,6 +235,16 @@ class MainWindow(QMainWindow):
         self.mute_checkbox.toggled.connect(self._on_mute_toggled)
         layout.addWidget(self.mute_checkbox)
 
+        self.pause_fs_checkbox = QCheckBox()
+        self.pause_fs_checkbox.setChecked(True)
+        self.pause_fs_checkbox.toggled.connect(self._on_autopause_toggled)
+        layout.addWidget(self.pause_fs_checkbox)
+
+        self.pause_batt_checkbox = QCheckBox()
+        self.pause_batt_checkbox.setChecked(False)
+        self.pause_batt_checkbox.toggled.connect(self._on_autopause_toggled)
+        layout.addWidget(self.pause_batt_checkbox)
+
         # -- hlasitost videa ---------------------------------------------
         vol_row = QHBoxLayout()
         vol_row.setSpacing(8)
@@ -354,6 +364,15 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 try:
+                    self.pause_fs_checkbox.setChecked(
+                        bool(cfg.get("pause_fullscreen", True))
+                    )
+                    self.pause_batt_checkbox.setChecked(
+                        bool(cfg.get("pause_battery", False))
+                    )
+                except Exception:
+                    pass
+                try:
                     self.volume_slider.blockSignals(True)
                     self.volume_slider.setValue(int(cfg.get("volume", 30)))
                     self.volume_slider.blockSignals(False)
@@ -387,6 +406,8 @@ class MainWindow(QMainWindow):
                     "theme": self.theme,
                     "muted": self.mute_checkbox.isChecked(),
                     "volume": self.volume_slider.value(),
+                    "pause_fullscreen": self.pause_fs_checkbox.isChecked(),
+                    "pause_battery": self.pause_batt_checkbox.isChecked(),
                 }, f)
         except Exception:
             pass
@@ -397,6 +418,18 @@ class MainWindow(QMainWindow):
         try:
             if self.video_window is not None:
                 self.video_window.set_muted(bool(checked))
+        except Exception:
+            pass
+
+    def _on_autopause_toggled(self, _checked: bool):
+        """Save rules and apply them to the running wallpaper immediately."""
+        self._save_config()
+        try:
+            if self.video_window is not None:
+                self.video_window.set_auto_pause(
+                    self.pause_fs_checkbox.isChecked(),
+                    self.pause_batt_checkbox.isChecked(),
+                )
         except Exception:
             pass
 
@@ -456,6 +489,8 @@ class MainWindow(QMainWindow):
             pass
         self.drop_zone.set_hint(s["drop_hint"])
         self.mute_checkbox.setText(s["mute"])
+        self.pause_fs_checkbox.setText(s["pause_fullscreen"])
+        self.pause_batt_checkbox.setText(s["pause_battery"])
         self.volume_label.setText(s["volume_label"])
         self.apply_btn.setText(s["apply"])
         self.measure_btn.setText(s["measure"])
@@ -601,6 +636,8 @@ class MainWindow(QMainWindow):
             self.video_window = VideoWallpaperWindow(
                 self.selected_path, muted=self.mute_checkbox.isChecked(),
                 volume=self.volume_slider.value() / 100.0,
+                auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
+                auto_pause_battery=self.pause_batt_checkbox.isChecked(),
             )
             self.video_window.failed.connect(self._on_video_failed)
             if self.video_window.start():

@@ -32,7 +32,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   `DownloadWorker`. Plan: accept playlist URLs, fetch `extract_flat` entries,
   show a picker dialog, download selected item(s). Keep the 500 MB cap and
   H.264/1080p filters per item. URL validator already allows `/playlist`.
-- [ ] ⭐ **Pause/resume rules** — pause video when a fullscreen app runs
+- [x] ⭐ **Pause/resume rules** — pause video when a fullscreen app runs
   (games) or on battery. Lively does this; big perceived-quality win, small
   code (poll foreground window / `GetSystemPowerStatus`).
 - [ ] **Multi-monitor selection** — per-monitor wallpaper choice. The
