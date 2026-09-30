@@ -1,4 +1,4 @@
-"""Windows backend: deleguje na stavajici GDI/WorkerW implementaci."""
+"""Windows backend: delegates to the existing GDI/WorkerW implementation."""
 
 from __future__ import annotations
 
@@ -16,5 +16,5 @@ class WindowsBackend(WallpaperBackend):
         return screens.measure_screens()
 
     def get_workerw_handle(self):
-        """WorkerW okno plochy, kam se vklada video (Windows-only)."""
+        """Desktop WorkerW window where the video is embedded (Windows-only)."""
         return win32.get_workerw_handle()
