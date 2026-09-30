@@ -6,7 +6,7 @@ import json
 import os
 import sys
 
-from PySide6.QtCore import QLoggingCategory, Qt, QUrl, Signal
+from PySide6.QtCore import QLoggingCategory, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
     QDragEnterEvent,
@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from wallmotion import screens
+from wallmotion import cli, instance, screens
 from wallmotion.config import CONFIG_PATH
 from wallmotion.i18n import (
     ACCENT,
@@ -51,6 +51,11 @@ from wallmotion.i18n import (
 )
 from wallmotion.linux_video import LinuxVideoWallpaper
 from wallmotion.platform import get_backend
+from wallmotion.updatecheck import (
+    UpdateCheckWorker,
+    is_newer,
+    should_auto_check,
+)
 from wallmotion.utils import DEBUG_LOG, _asset_path, _quiet_ffmpeg, debug_log
 from wallmotion.video import VideoWallpaperWindow
 from wallmotion.wallpaper import (
@@ -201,6 +206,9 @@ class MainWindow(QMainWindow):
         self._pl_queue = []
         self._pl_active = False
         self._pl_current = None
+        self.update_worker = None
+        self._update_last_check = 0.0
+        self._update_last_seen = ""
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -375,9 +383,13 @@ class MainWindow(QMainWindow):
         menu = QMenu()
         self.tray_show_action = QAction("Otevřít", self)
         self.tray_show_action.triggered.connect(self.showNormal)
+        self.tray_update_action = QAction("Zkontrolovat aktualizace", self)
+        self.tray_update_action.triggered.connect(
+            lambda: self._check_updates(force=True))
         self.tray_quit_action = QAction("Ukončit", self)
         self.tray_quit_action.triggered.connect(self.quit_app)
         menu.addAction(self.tray_show_action)
+        menu.addAction(self.tray_update_action)
         menu.addAction(self.tray_quit_action)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
@@ -421,6 +433,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     self.monitor_choice = "all"
                 try:
+                    self._update_last_check = float(cfg.get("update_last_check", 0.0))
+                    self._update_last_seen = str(cfg.get("update_last_seen", ""))
+                except Exception:
+                    pass
+                try:
                     self.volume_slider.blockSignals(True)
                     self.volume_slider.setValue(int(cfg.get("volume", 30)))
                     self.volume_slider.blockSignals(False)
@@ -457,6 +474,8 @@ class MainWindow(QMainWindow):
                     "pause_fullscreen": self.pause_fs_checkbox.isChecked(),
                     "pause_battery": self.pause_batt_checkbox.isChecked(),
                     "monitor": self.monitor_choice,
+                    "update_last_check": self._update_last_check,
+                    "update_last_seen": self._update_last_seen,
                 }, f)
         except Exception:
             pass
@@ -553,6 +572,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(s["ready"])
         try:
             self.tray_show_action.setText(s["open_tray"])
+            self.tray_update_action.setText(s["tray_check_update"])
             self.tray_quit_action.setText(s["quit_tray"])
         except Exception:
             pass
@@ -990,6 +1010,81 @@ class MainWindow(QMainWindow):
             QSystemTrayIcon.MessageIcon.Information, 2000
         )
 
+    def handle_remote_command(self, cmd: dict):
+        """Apply a CLI / single-instance command to the running app."""
+        try:
+            if not isinstance(cmd, dict) or not cmd:
+                return
+            debug_log(f"CMD: {sorted(cmd)}")
+            if "set" in cmd:
+                path = cmd["set"]
+                if path and os.path.exists(path):
+                    self._on_file_chosen(path)
+                    self.apply_wallpaper()
+            if cmd.get("stop"):
+                self.stop_wallpaper()
+            if "muted" in cmd:
+                try:
+                    self.mute_checkbox.setChecked(bool(cmd["muted"]))
+                except Exception:
+                    pass
+            if "volume" in cmd:
+                try:
+                    self.volume_slider.setValue(int(cmd["volume"]))
+                except Exception:
+                    pass
+            self.showNormal()
+        except Exception as e:
+            debug_log(f"CMD exception: {e!r}")
+
+    def _schedule_update_check(self):
+        """Automatic weekly update check, shortly after startup."""
+        try:
+            if should_auto_check(self._update_last_check):
+                QTimer.singleShot(5000, lambda: self._check_updates(force=False))
+        except Exception:
+            pass
+
+    def _check_updates(self, force: bool = False):
+        try:
+            if self.update_worker is not None and self.update_worker.isRunning():
+                return
+            if not force and not should_auto_check(self._update_last_check):
+                return
+            self.update_worker = UpdateCheckWorker(self)
+            self.update_worker.result.connect(
+                lambda info: self._on_update_result(info, force))
+            self.update_worker.start()
+        except Exception as e:
+            debug_log(f"UPDATE exception: {e!r}")
+
+    def _on_update_result(self, info: dict, manual: bool):
+        try:
+            import time as _time
+            previous = self._update_last_seen
+            tag = (info or {}).get("tag", "")
+            self._update_last_check = _time.time()
+            if tag:
+                self._update_last_seen = tag
+            self._save_config()
+            if not tag:
+                if manual:
+                    self.status_label.setText(self.S()["update_failed"])
+                return
+            if is_newer(tag, previous):
+                msg = self.S()["update_available"].format(tag=tag)
+                self.status_label.setText(msg)
+                try:
+                    self.tray.showMessage(
+                        self.S()["app_name"], msg,
+                        QSystemTrayIcon.MessageIcon.Information, 5000)
+                except Exception:
+                    pass
+            elif manual:
+                self.status_label.setText(self.S()["update_uptodate"])
+        except Exception as e:
+            debug_log(f"UPDATE result exception: {e!r}")
+
     def quit_app(self):
         if self.video_window is not None:
             self.video_window.stop()
@@ -1020,9 +1115,50 @@ def main():
     except Exception:
         pass
     debug_log("APP start")
+    # CLI: parse before QApplication (it would eat its own flags).
+    cli_args, startup_cmd = None, {}
+    try:
+        cli_args = cli.parse_args(sys.argv[1:])
+    except SystemExit:
+        return  # --help or usage error: argparse already printed
+    except Exception:
+        cli_args = None
+    if cli_args is not None and getattr(cli_args, "version", False):
+        print("WallMotion dev (version follows git tags, see Releases)")
+        return
+    if cli_args is not None:
+        try:
+            startup_cmd = cli.args_to_command(cli_args)
+        except Exception:
+            startup_cmd = {}
+    if startup_cmd:
+        # Another instance running? Forward the command and exit.
+        try:
+            if instance.send_command(startup_cmd):
+                return
+        except Exception:
+            pass
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(build_stylesheet("dark"))
     win = MainWindow()
+    try:
+        server = instance.InstanceServer(win)
+        server.command_received.connect(win.handle_remote_command)
+        if server.start():
+            win._instance_server = server
+    except Exception:
+        pass
     win.show()
+    if startup_cmd:
+        # CLI launch: apply, then stay in the tray.
+        try:
+            win.handle_remote_command(startup_cmd)
+            win.hide()
+        except Exception:
+            pass
+    try:
+        win._schedule_update_check()
+    except Exception:
+        pass
     sys.exit(app.exec())

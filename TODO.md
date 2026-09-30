@@ -68,9 +68,9 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 - [ ] **libmpv decode engine** — kills the H.264-only ceiling (AV1/VP9) and
   unifies Windows + Linux render paths. Evaluate when AV1 YouTube content
   becomes annoying.
-- [ ] **CLI interface** — `wallmotion --set file.mp4`, `--stop`, `--mute`.
-  Scriptable, near-free once the backend seam exists.
-- [ ] **Update check** — poll GitHub Releases API, show "new version" in tray.
+- [x] **CLI interface** — `wallmotion --set file.mp4`, `--stop`, `--mute`.
+  Single-instance forwarding to the running app, weekly update check
+  with tray notice.
 - [ ] **Per-wallpaper volume memory** — remember mute/volume per file.
 
 ## Done

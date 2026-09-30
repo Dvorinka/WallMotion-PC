@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live volume/mute/pause over mpv JSON IPC, sysfs battery sensor,
   missing-tool messages in the UI. GNOME-Wayland video remains
   unsupported (Hanabi extension needed). Not yet tested on hardware.
+- CLI: `wallmotion --set FILE --stop --mute/--unmute --volume N`
+  with single-instance forwarding to the running app.
+- Update check: weekly GitHub Releases poll with tray notice,
+  manual check in the tray menu.
 - Code comments translated to English (user-facing strings stay
   Czech/English in `locales/`).
 
