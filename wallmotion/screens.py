@@ -1,20 +1,29 @@
-"""Mereni obrazovek (Qt + WinAPI fallback)."""
+"""Screen measurement (Qt + WinAPI fallback)."""
 
 from __future__ import annotations
 
 import sys
 
-from PySide6.QtWidgets import QApplication
-
 from wallmotion.win32 import win32api
 
 
-def get_physical_monitors() -> list:
-    """Fyzicke monitory pres WinAPI (EnumDisplayMonitors).
+def _qapplication():
+    """QApplication, imported lazily.
 
-    Vrati [{index, x, y, w, h, primary}] ve fyzickych pixelech
-    (souradnice virtualni plochy). Na ne-Windows prazdny seznam.
-    Poradi = poradi enumerace; primary má vzdy primary=True.
+    Keeps this module importable without Qt (headless CI): only the
+    functions that actually query screens need it. Pure helpers
+    (place_canvas) and the WinAPI path work anywhere.
+    """
+    from PySide6.QtWidgets import QApplication
+    return QApplication
+
+
+def get_physical_monitors() -> list:
+    """Physical monitors via WinAPI (EnumDisplayMonitors).
+
+    Return [{index, x, y, w, h, primary}] in physical pixels
+    (virtual desktop coordinates). Empty list on non-Windows.
+    Order = enumeration order; primary always has primary=True.
     """
     monitors = []
     if sys.platform != "win32" or win32api is None:
@@ -43,10 +52,10 @@ def get_physical_monitors() -> list:
 
 
 def place_canvas(parent_rect: tuple, monitor: dict | None) -> tuple:
-    """Spocita (x, y, w, h) platna vuci parent oknu. Cista funkce pro testy.
+    """Compute (x, y, w, h) canvas relative to the parent window. Pure function for tests.
 
-    parent_rect: (x1, y1, x2, y2) rodice v screen souradnicich.
-    monitor: {x, y, w, h} ve screen souradnicich, nebo None = cely parent.
+    parent_rect: (x1, y1, x2, y2) of the parent in screen coordinates.
+    monitor: {x, y, w, h} in screen coordinates, or None = whole parent.
     """
     px1, py1, px2, py2 = parent_rect
     if not monitor:
@@ -60,8 +69,9 @@ def place_canvas(parent_rect: tuple, monitor: dict | None) -> tuple:
 
 
 def get_virtual_screen_rect():
-    """Vrati (x, y, w, h) pres vsechny monitory. Fallback na primarni."""
+    """Return (x, y, w, h) spanning all monitors. Fallback to primary."""
     try:
+        QApplication = _qapplication()
         screens = QApplication.screens()
         if screens:
             left = min(s.geometry().left() for s in screens)
@@ -71,7 +81,7 @@ def get_virtual_screen_rect():
             return left, top, right - left, bottom - top
     except Exception:
         pass
-    # Fallback pres WinAPI
+    # Fallback via WinAPI
     try:
         x = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
         y = win32api.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
@@ -80,22 +90,26 @@ def get_virtual_screen_rect():
         return x, y, w, h
     except Exception:
         pass
-    geo = QApplication.primaryScreen().geometry()
-    return geo.x(), geo.y(), geo.width(), geo.height()
+    try:
+        geo = _qapplication().primaryScreen().geometry()
+        return geo.x(), geo.y(), geo.width(), geo.height()
+    except Exception:
+        return (0, 0, 0, 0)
 
 
 def measure_screens() -> dict:
-    """Zmeri vsechny pripojene obrazovky.
+    """Measure all connected screens.
 
-    Vrati dict:
-      screens: [{index, x, y, width, height (logicke),
-                 physical_width, physical_height (skutecne pixely),
+    Return dict:
+      screens: [{index, x, y, width, height (logical),
+                 physical_width, physical_height (actual pixels),
                  primary, dpr}]
-      virtual: (x, y, w, h) pres vsechny monitory (logicke souradnice)
-      primary: (w, h) fyzicke pixely primarni obrazovky
+      virtual: (x, y, w, h) spanning all monitors (logical coordinates)
+      primary: (w, h) physical pixels of the primary screen
     """
     info = {"screens": [], "virtual": (0, 0, 0, 0), "primary": (0, 0)}
     try:
+        QApplication = _qapplication()
         app = QApplication.instance()
         screens = app.screens() if app is not None else []
         for i, s in enumerate(screens):
@@ -129,7 +143,7 @@ def measure_screens() -> dict:
             return info
     except Exception:
         pass
-    # Fallback pres WinAPI (vraci fyzicke pixely)
+    # Fallback via WinAPI (returns physical pixels)
     try:
         x = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
         y = win32api.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN

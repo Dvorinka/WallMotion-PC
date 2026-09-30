@@ -13,7 +13,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   Windows code behind a `WallpaperBackend` interface. This is the Linux port
   map — do it *during* the split, not after. Interface sketch:
   `docs/STACK_ANALYSIS.md` appendix §4.
-- [ ] ⭐ **Translate code comments to English** during the split (README stays
+- [x] **Translate code comments to English** during the split (README stays
   bilingual; code becomes English).
 - [x] **XDG paths helper** (`paths.py`) — `~/.config`, `~/.local/share`,
   `~/.local/state` on Linux; keep current paths on Windows.

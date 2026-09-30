@@ -138,5 +138,5 @@ CURRENT_THEME = dict(THEMES["dark"])
 
 
 def T(key: str) -> str:
-    """Aktualni barva motivu (po apply_theme se prepne dark/light)."""
+    """Current theme color (switches dark/light after apply_theme)."""
     return CURRENT_THEME.get(key, THEMES["dark"].get(key, "#000000"))

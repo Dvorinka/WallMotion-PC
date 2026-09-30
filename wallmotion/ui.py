@@ -1,4 +1,4 @@
-"""Uzivatelske rozhrani: DropZone, hlavni okno, spousteci main()."""
+"""User interface: DropZone, main window, entry-point main()."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ class DropZone(QFrame):
         """)
 
     def _show_system_icon(self, which) -> None:
-        """Systemova ikona stylu Windows misto emoji (QLabel s pixmapou)."""
+        """Native Windows-style system icon instead of emoji (QLabel with pixmap)."""
         try:
             pm = self.style().standardIcon(which).pixmap(52, 52)
             if not pm.isNull():
@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         self.screen_label.setObjectName("status")
         layout.addWidget(self.screen_label)
 
-        # -- nastaveni: jazyk + motiv -------------------------------------
+        # -- settings: language + theme -------------------------------------
         settings_row = QHBoxLayout()
         settings_row.setSpacing(8)
         self.lang_label = QLabel()
@@ -220,7 +220,7 @@ class MainWindow(QMainWindow):
         settings_row.addWidget(self.theme_combo, 1)
         layout.addLayout(settings_row)
 
-        # -- vyber monitoru ------------------------------------------------
+        # -- monitor selection ------------------------------------------------
         monitor_row = QHBoxLayout()
         monitor_row.setSpacing(8)
         self.monitor_label = QLabel()
@@ -235,7 +235,7 @@ class MainWindow(QMainWindow):
         self.drop_zone.clicked.connect(self.browse_file)
         layout.addWidget(self.drop_zone)
 
-        # -- YouTube odkaz -------------------------------------------------
+        # -- YouTube link -------------------------------------------------
         yt_row = QHBoxLayout()
         yt_row.setSpacing(8)
         self.yt_input = QLineEdit()
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
         yt_row.addWidget(self.yt_button)
         layout.addLayout(yt_row)
 
-        # -- slozka se stazenymi videi -----------------------------------
+        # -- downloaded videos folder -----------------------------------
         self.folder_button = QPushButton()
         self.folder_button.setObjectName("secondary")
         self.folder_button.clicked.connect(self.open_downloads_folder)
@@ -267,7 +267,7 @@ class MainWindow(QMainWindow):
         self.pause_batt_checkbox.toggled.connect(self._on_autopause_toggled)
         layout.addWidget(self.pause_batt_checkbox)
 
-        # -- hlasitost videa ---------------------------------------------
+        # -- video volume ---------------------------------------------
         vol_row = QHBoxLayout()
         vol_row.setSpacing(8)
         self.volume_label = QLabel()
@@ -311,7 +311,7 @@ class MainWindow(QMainWindow):
 
     # -- tray ---------------------------------------------------------
     def _make_app_icon(self) -> QIcon:
-        # Primarne ikona ze souboru assets/icon.png (monitor s play).
+        # Prefer icon from assets/icon.png file (monitor with play).
         try:
             p = _asset_path("icon.png")
             if os.path.exists(p):
@@ -320,8 +320,8 @@ class MainWindow(QMainWindow):
                     return icon
         except Exception:
             pass
-        # Fallback: jednoducha fialova ikona programove, at tray nikdy
-        # neni bez ikony (na Windows fromTheme vzdy vrati null).
+        # Fallback: simple purple icon drawn programmatically so the tray
+        # is never without an icon (fromTheme always returns null on Windows).
         try:
             pix = QPixmap(64, 64)
             pix.fill(Qt.transparent)
@@ -414,7 +414,7 @@ class MainWindow(QMainWindow):
                     self.drop_zone.set_file(path)
             except Exception:
                 pass
-        # combo boxy nastavit bez vyvolani signalu
+        # set combo boxes without emitting signals
         try:
             self.lang_combo.blockSignals(True)
             self.lang_combo.setCurrentIndex(list(LANGS).index(self.lang))
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_mute_toggled(self, checked: bool):
-        """F4: ulozit volbu a okamzite prepnpout zvuk bezici tapety."""
+        """F4: save the option and immediately toggle sound of the running wallpaper."""
         self._save_config()
         try:
             if self.video_window is not None:
@@ -464,7 +464,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_volume_changed(self, value: int):
-        """Ulozit hlasitost a okamzite ji nastavit bezici tapete."""
+        """Save the volume and immediately apply it to the running wallpaper."""
         self.volume_value.setText(f"{int(value)}%")
         self._save_config()
         try:
@@ -473,7 +473,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    # -- motiv + jazyk ---------------------------------------------------------
+    # -- theme + language ---------------------------------------------------------
     def apply_theme(self, theme: str, save: bool = True):
         if theme not in THEMES:
             theme = "dark"
@@ -509,7 +509,7 @@ class MainWindow(QMainWindow):
         self.subtitle_label.setText(s["subtitle"])
         self.lang_label.setText(s["lang_label"])
         self.theme_label.setText(s["theme_label"])
-        # texty v comboboxech motivu
+        # theme combo box texts
         try:
             self.theme_combo.blockSignals(True)
             self.theme_combo.setItemText(0, s["theme_dark"])
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
         if not url:
             self.status_label.setText(s["warn_nofile_m"])
             return
-        # F1: URL overit driv, nez se preda yt-dlp.
+        # F1: validate the URL before passing it to yt-dlp.
         if not is_valid_youtube_url(url):
             self.status_label.setText(
                 s["yt_error"].format(e=s["yt_invalid_url"])
@@ -678,9 +678,9 @@ class MainWindow(QMainWindow):
         debug_log(f"YT: stazeno {path}")
         self.status_label.setText(s["yt_done"])
         self._on_file_chosen(path)
-        # po stazeni rovnou nastavit jako tapetu
+        # set as wallpaper right after download
         self.apply_wallpaper()
-        # fronta playlistu: pokracovat dalsi vybranou polozkou
+        # playlist queue: continue with the next selected item
         self._on_queue_item_done()
 
     def _on_yt_error(self, err: str):
@@ -688,11 +688,11 @@ class MainWindow(QMainWindow):
         if err == "NEED_FFMPEG":
             err = self.S()["yt_need_ffmpeg"]
         self.status_label.setText(self.S()["yt_error"].format(e=err))
-        # fronta playlistu: pokazene video preskocit, jet dal
+        # playlist queue: skip the broken video, keep going
         self._on_queue_item_done()
 
     def open_downloads_folder(self):
-        """Otevre slozku se stazenymi videi v Pruzkumniku."""
+        """Open the downloaded videos folder in Explorer."""
         try:
             os.makedirs(YT_DIR, exist_ok=True)
         except Exception:
@@ -706,7 +706,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    # -- obrazovka ---------------------------------------------------------
+    # -- screen ---------------------------------------------------------
     def _refresh_screen_label(self):
         s = self.S()
         screens_info = self.screen_info.get("screens", [])
@@ -817,7 +817,7 @@ class MainWindow(QMainWindow):
 
         ext = os.path.splitext(self.selected_path)[1].lower()
 
-        # Pozadi se vzdy prizpusobi zmerenemu rozmeru obrazovky.
+        # Always fit the background to the measured screen size.
         self.screen_info = screens.measure_screens()
         self.monitors = screens.get_physical_monitors()
         self._refresh_screen_label()
@@ -901,12 +901,12 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    # Qt 6 si DPI awareness (Per-Monitor V2) nastavuje samo.
-    # Rucni SetProcessDpiAwareness by hazelo chybu "Pristup byl odepren",
-    # tak ho tu schvalne NEvolame.
-    # Ztiseni ukecanych FFmpeg logu (Input #0, MFT, ...). Nejsou to chyby,
-    # jen info o dekodovani, tak je skryjeme, at nezasvinuji konzoli.
-    # Qt kategorie (pres QT_LOGGING_RULES) + nativni av_log level (primo ve FFmpegu).
+    # Qt 6 sets DPI awareness (Per-Monitor V2) by itself.
+    # Manual SetProcessDpiAwareness would throw "Access denied",
+    # so we deliberately do NOT call it here.
+    # Silence chatty FFmpeg logs (Input #0, MFT, ...). They are not errors,
+    # just decoding info, so hide them to keep the console clean.
+    # Qt categories (via QT_LOGGING_RULES) + native av_log level (directly in FFmpeg).
     os.environ.setdefault("QT_LOGGING_RULES", "qt.multimedia.ffmpeg=false")
     try:
         QLoggingCategory.setFilterRules("qt.multimedia.ffmpeg=false")

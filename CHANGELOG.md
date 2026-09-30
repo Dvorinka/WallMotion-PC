@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guards apply per item).
 - Multi-monitor selection: video wallpaper (and image fit) can target
   one monitor or span all; choice remembered between launches.
+- Code comments translated to English (user-facing strings stay
+  Czech/English in `locales/`).
+
+### Fixed
+- Linux CI: `wallmotion/screens.py` imports Qt lazily so pure logic
+  and tests work headless (no `libEGL` needed).
 
 ## [1.0.0] - 2026-09-14
 
