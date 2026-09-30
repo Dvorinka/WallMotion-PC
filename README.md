@@ -77,7 +77,9 @@ detected from `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
 | Wayland + GNOME | `gsettings` | not supported (needs the Hanabi Shell extension) |
 
 Install what your session needs, e.g. `sudo apt install feh mpv`
-(X11), or `mpvpaper` / `swww` from your distro repos. Missing tools
+(X11), or `mpvpaper` / `swww` from your distro repos. The AppImage
+needs host Mesa/GL libraries (`libgl1 libegl1` — preinstalled on
+practically every desktop distro). Missing tools
 are reported in the status line instead of crashing. Volume, mute and
 pause go through mpv JSON IPC; battery auto-pause reads
 `/sys/class/power_supply`.

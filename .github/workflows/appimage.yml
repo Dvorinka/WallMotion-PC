@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt pyinstaller
 
+      - name: Install Qt runtime libs (runner has no Mesa/EGL)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
+
       - name: Headless import smoke test
         run: |
           QT_QPA_PLATFORM=offscreen python -c "from wallmotion.platform.linux import describe_session; print(describe_session())"
