@@ -10,6 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Open-source project files: MIT license, contributing guide, code of
   conduct, security policy, issue/PR templates, CI and release workflows.
+- Platform paths helper (`wallmotion/paths.py`): XDG directories
+  (`~/.config`, `~/.local/share`, `~/.local/state`) on Linux, legacy
+  locations kept on Windows.
+- UI strings extracted into locale files (`locales/cs.json`,
+  `locales/en.json`) loaded by `wallmotion/i18n.py`.
+- Auto-pause rules: video pauses when a fullscreen app runs (games)
+  and optionally on battery power; both checkboxes in the UI,
+  remembered between launches.
+- YouTube playlist support: `/playlist` links open a picker dialog,
+  selected videos download sequentially (500 MB cap and H.264/1080p
+  guards apply per item).
+- Multi-monitor selection: video wallpaper (and image fit) can target
+  one monitor or span all; choice remembered between launches.
+- Linux support v1: session detection (`XDG_SESSION_TYPE` /
+  `XDG_CURRENT_DESKTOP`), image backends (`feh`, `swww`, `gsettings`,
+  `plasma-apply-wallpaperimage`), video via `mpvpaper` / `xwinwrap`+`mpv`,
+  live volume/mute/pause over mpv JSON IPC, sysfs battery sensor,
+  missing-tool messages in the UI. GNOME-Wayland video remains
+  unsupported (Hanabi extension needed). Not yet tested on hardware.
+- CLI: `wallmotion --set FILE --stop --mute/--unmute --volume N`
+  with single-instance forwarding to the running app.
+- Update check: weekly GitHub Releases poll with tray notice,
+  manual check in the tray menu.
+- Linux packaging: AppImage built in CI (`appimage.yml`) and attached
+  to tag Releases next to the Windows .exe.
+- Code comments translated to English (user-facing strings stay
+  Czech/English in `locales/`).
+
+### Fixed
+- Linux CI: `wallmotion/screens.py` imports Qt lazily so pure logic
+  and tests work headless (no `libEGL` needed).
 
 ## [1.0.0] - 2026-09-14
 

@@ -1,0 +1,73 @@
+name: AppImage
+
+# Linux packaging: PyInstaller onefile bundle wrapped as AppImage.
+# Runs on version tags (attaches the AppImage to the GitHub Release,
+# next to the Windows .exe) and manually via workflow_dispatch
+# (smoke test without publishing anything).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt pyinstaller
+
+      - name: Install Qt runtime libs (runner has no Mesa/EGL)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
+
+      - name: Headless import smoke test
+        run: |
+          QT_QPA_PLATFORM=offscreen python -c "from wallmotion.platform.linux import describe_session; print(describe_session())"
+          QT_QPA_PLATFORM=offscreen python -m pytest tests/test_linux.py -q
+
+      - name: Build onefile bundle
+        run: >-
+          python -m PyInstaller --onefile --windowed --name WallMotion
+          --add-data "assets:assets" --add-data "locales:locales"
+          --noconfirm main.py
+
+      - name: Binary smoke test (--version needs no display)
+        run: ./dist/WallMotion --version
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          cp dist/WallMotion AppDir/usr/bin/
+          cp assets/icon.png AppDir/wallmotion.png
+          printf '%s\n' '#!/bin/sh' 'exec "$APPDIR/usr/bin/WallMotion" "$@"' > AppDir/AppRun
+          chmod +x AppDir/AppRun
+          printf '%s\n' '[Desktop Entry]' 'Name=WallMotion' 'Exec=WallMotion' 'Icon=wallmotion' 'Type=Application' 'Categories=Utility;DesktopSettings;' > AppDir/WallMotion.desktop
+
+      - name: Build AppImage
+        run: |
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool AppDir WallMotion-x86_64.AppImage
+
+      - name: Upload artifact (manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: WallMotion-x86_64.AppImage
+          path: WallMotion-x86_64.AppImage
+
+      - name: Publish to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: WallMotion-x86_64.AppImage

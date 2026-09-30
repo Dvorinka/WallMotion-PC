@@ -24,7 +24,7 @@ jobs:
       - name: Build exe
         run: >-
           python -m PyInstaller --onefile --windowed --name WallMotion
-          --icon assets\icon.ico --add-data "assets;assets" --noconfirm main.py
+          --icon assets\icon.ico --add-data "assets;assets" --add-data "locales;locales" --noconfirm main.py
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3

@@ -1,4 +1,4 @@
-"""Staticka tapeta (obrazek): nastaveni pres Windows API + fit na obrazovku."""
+"""Static wallpaper (image): setting via Windows API + fit to screen."""
 
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ def get_current_wallpaper() -> str:
 
 
 def fit_image_to_screen(image_path: str, width: int, height: int) -> str:
-    """Upravi obrazek presne na rozmer obrazovky (cover + oriznuti na stred)
-    a ulozi ho do docasneho BMP. Vrati cestu k upravenemu souboru,
-    pri chybe vrati puvodni cestu."""
+    """Resize the image exactly to the screen size (cover + center crop)
+    and save it as a temporary BMP. Return the path to the adjusted file,
+    on error return the original path."""
     try:
         img = QImage(image_path)
         if img.isNull() or width <= 0 or height <= 0:
