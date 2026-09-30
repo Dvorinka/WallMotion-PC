@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - YouTube playlist support: `/playlist` links open a picker dialog,
   selected videos download sequentially (500 MB cap and H.264/1080p
   guards apply per item).
+- Multi-monitor selection: video wallpaper (and image fit) can target
+  one monitor or span all; choice remembered between launches.
 
 ## [1.0.0] - 2026-09-14
 

@@ -60,7 +60,8 @@ class VideoWallpaperWindow(QWidget):
 
     def __init__(self, video_path: str, muted: bool = True, volume: float = 0.3,
                  auto_pause_fullscreen: bool = True,
-                 auto_pause_battery: bool = False):
+                 auto_pause_battery: bool = False,
+                 monitor: dict | None = None):
         super().__init__()
         # Bez ramecku, bez focusu, bez aktivace - nesmi krast kliky/focus.
         # Zadny layout ani potomek: cele okno je platno, maluje se pres GDI.
@@ -76,6 +77,8 @@ class VideoWallpaperWindow(QWidget):
         self.video_path = video_path
         self._muted = bool(muted)
         self._volume = max(0.0, min(1.0, float(volume)))
+        # Vybrany monitor {x, y, w, h} ve fyzickych pixelech, nebo None = vse.
+        self._monitor = dict(monitor) if monitor else None
         # Auto-pause rules (fullscreen app / battery). Timer starts in start().
         self._pause_on_fullscreen = bool(auto_pause_fullscreen)
         self._pause_on_battery = bool(auto_pause_battery)
@@ -267,8 +270,14 @@ class VideoWallpaperWindow(QWidget):
         try:
             px1, py1, px2, py2 = win32gui.GetWindowRect(progman)
             wx1, wy1, wx2, wy2 = win32gui.GetWindowRect(workerw)
-            w, h = max(1, wx2 - wx1), max(1, wy2 - wy1)
-            x, y = wx1 - px1, wy1 - py1
+            if self._monitor:
+                # Per-monitor video: platno jen nad vybranym monitorem.
+                base = (px1, py1, px2, py2) if raised else (wx1, wy1, wx2, wy2)
+                x, y, w, h = screens.place_canvas(base, self._monitor)
+                debug_log(f"START: monitor canvas x={x} y={y} {w}x{h}")
+            else:
+                w, h = max(1, wx2 - wx1), max(1, wy2 - wy1)
+                x, y = wx1 - px1, wy1 - py1
         except Exception as e:
             debug_log(f"START: GetWindowRect selhalo: {e!r}")
             return False
@@ -281,7 +290,8 @@ class VideoWallpaperWindow(QWidget):
             )
         else:
             parent = workerw
-            x, y = 0, 0
+            if not self._monitor:
+                x, y = 0, 0
             exstyle = _WS_EX_NOACTIVATE | _WS_EX_TRANSPARENT | _WS_EX_TOOLWINDOW
         try:
             cls_ok = _ensure_canvas_class()

@@ -2,9 +2,61 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtWidgets import QApplication
 
 from wallmotion.win32 import win32api
+
+
+def get_physical_monitors() -> list:
+    """Fyzicke monitory pres WinAPI (EnumDisplayMonitors).
+
+    Vrati [{index, x, y, w, h, primary}] ve fyzickych pixelech
+    (souradnice virtualni plochy). Na ne-Windows prazdny seznam.
+    Poradi = poradi enumerace; primary má vzdy primary=True.
+    """
+    monitors = []
+    if sys.platform != "win32" or win32api is None:
+        return monitors
+    try:
+        found = []
+        # pywin32: EnumDisplayMonitors() returns [(hmon, hdc, rect)].
+        for hmonitor, _hdc, _rect in win32api.EnumDisplayMonitors():
+            try:
+                info = win32api.GetMonitorInfo(hmonitor)
+                mon = info.get("Monitor", (0, 0, 0, 0))
+                flags = info.get("Flags", 0)
+                found.append((mon, bool(flags & 1)))  # MONITORINFOF_PRIMARY = 1
+            except Exception:
+                continue
+        for i, ((left, top, right, bottom), primary) in enumerate(found):
+            monitors.append({
+                "index": i,
+                "x": int(left), "y": int(top),
+                "w": max(1, int(right - left)), "h": max(1, int(bottom - top)),
+                "primary": primary,
+            })
+    except Exception:
+        pass
+    return monitors
+
+
+def place_canvas(parent_rect: tuple, monitor: dict | None) -> tuple:
+    """Spocita (x, y, w, h) platna vuci parent oknu. Cista funkce pro testy.
+
+    parent_rect: (x1, y1, x2, y2) rodice v screen souradnicich.
+    monitor: {x, y, w, h} ve screen souradnicich, nebo None = cely parent.
+    """
+    px1, py1, px2, py2 = parent_rect
+    if not monitor:
+        return (0, 0, max(1, px2 - px1), max(1, py2 - py1))
+    try:
+        mx, my = int(monitor["x"]), int(monitor["y"])
+        mw, mh = max(1, int(monitor["w"])), max(1, int(monitor["h"]))
+    except Exception:
+        return (0, 0, max(1, px2 - px1), max(1, py2 - py1))
+    return (mx - px1, my - py1, mw, mh)
 
 
 def get_virtual_screen_rect():

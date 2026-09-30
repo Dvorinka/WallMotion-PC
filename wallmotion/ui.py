@@ -167,12 +167,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Live Wallpaper")
-        self.setFixedSize(430, 640)
+        self.setFixedSize(430, 672)
 
         self.video_window = None
         self.selected_path = None
         self.original_wallpaper = get_current_wallpaper()
         self.screen_info = screens.measure_screens()
+        self.monitors = screens.get_physical_monitors()
+        self.monitor_choice = "all"  # "all" or physical monitor index
         self.lang = "cs"
         self.theme = "dark"
         self.yt_worker = None
@@ -217,6 +219,16 @@ class MainWindow(QMainWindow):
         self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
         settings_row.addWidget(self.theme_combo, 1)
         layout.addLayout(settings_row)
+
+        # -- vyber monitoru ------------------------------------------------
+        monitor_row = QHBoxLayout()
+        monitor_row.setSpacing(8)
+        self.monitor_label = QLabel()
+        monitor_row.addWidget(self.monitor_label)
+        self.monitor_combo = QComboBox()
+        self.monitor_combo.currentIndexChanged.connect(self._on_monitor_changed)
+        monitor_row.addWidget(self.monitor_combo, 1)
+        layout.addLayout(monitor_row)
 
         self.drop_zone = DropZone()
         self.drop_zone.file_dropped.connect(self._on_file_chosen)
@@ -383,6 +395,13 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 try:
+                    mon = cfg.get("monitor", "all")
+                    if mon != "all":
+                        mon = int(mon)
+                    self.monitor_choice = mon
+                except Exception:
+                    self.monitor_choice = "all"
+                try:
                     self.volume_slider.blockSignals(True)
                     self.volume_slider.setValue(int(cfg.get("volume", 30)))
                     self.volume_slider.blockSignals(False)
@@ -418,6 +437,7 @@ class MainWindow(QMainWindow):
                     "volume": self.volume_slider.value(),
                     "pause_fullscreen": self.pause_fs_checkbox.isChecked(),
                     "pause_battery": self.pause_batt_checkbox.isChecked(),
+                    "monitor": self.monitor_choice,
                 }, f)
         except Exception:
             pass
@@ -501,6 +521,8 @@ class MainWindow(QMainWindow):
         self.mute_checkbox.setText(s["mute"])
         self.pause_fs_checkbox.setText(s["pause_fullscreen"])
         self.pause_batt_checkbox.setText(s["pause_battery"])
+        self.monitor_label.setText(s["monitor_label"])
+        self._refresh_monitor_combo()
         self.volume_label.setText(s["volume_label"])
         self.apply_btn.setText(s["apply"])
         self.measure_btn.setText(s["measure"])
@@ -704,9 +726,63 @@ class MainWindow(QMainWindow):
 
     def remeasure_screen(self):
         self.screen_info = screens.measure_screens()
+        self.monitors = screens.get_physical_monitors()
         self._refresh_screen_label()
+        self._refresh_monitor_combo()
         pw, ph = self.screen_info.get("primary", (0, 0))
         self.status_label.setText(self.S()["measured"].format(w=pw, h=ph))
+
+    def _refresh_monitor_combo(self):
+        """Rebuild monitor selector (all + physical monitors)."""
+        s = self.S()
+        try:
+            self.monitor_combo.blockSignals(True)
+            self.monitor_combo.clear()
+            self.monitor_combo.addItem(s["monitor_all"], "all")
+            for m in self.monitors:
+                try:
+                    label = f"Monitor {m['index'] + 1} ({m['w']}x{m['h']})"
+                    if m.get("primary"):
+                        label += f" - {s['monitor_primary']}"
+                    self.monitor_combo.addItem(label, m["index"])
+                except Exception:
+                    continue
+            idx = 0
+            if self.monitor_choice != "all":
+                for i in range(self.monitor_combo.count()):
+                    if self.monitor_combo.itemData(i) == self.monitor_choice:
+                        idx = i
+                        break
+                else:
+                    self.monitor_choice = "all"
+            self.monitor_combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+        finally:
+            try:
+                self.monitor_combo.blockSignals(False)
+            except Exception:
+                pass
+
+    def _on_monitor_changed(self, index: int):
+        try:
+            choice = self.monitor_combo.itemData(index)
+            self.monitor_choice = choice if choice is not None else "all"
+        except Exception:
+            self.monitor_choice = "all"
+        self._save_config()
+
+    def _selected_monitor(self) -> dict | None:
+        """Chosen physical monitor {x, y, w, h}, or None for all monitors."""
+        if self.monitor_choice == "all":
+            return None
+        try:
+            for m in self.monitors:
+                if m.get("index") == self.monitor_choice:
+                    return dict(m)
+        except Exception:
+            pass
+        return None
 
     # -- UI actions ---------------------------------------------------------
     def browse_file(self):
@@ -743,8 +819,14 @@ class MainWindow(QMainWindow):
 
         # Pozadi se vzdy prizpusobi zmerenemu rozmeru obrazovky.
         self.screen_info = screens.measure_screens()
+        self.monitors = screens.get_physical_monitors()
         self._refresh_screen_label()
-        pw, ph = self.screen_info.get("primary", (0, 0))
+        self._refresh_monitor_combo()
+        mon = self._selected_monitor()
+        if mon:
+            pw, ph = mon["w"], mon["h"]
+        else:
+            pw, ph = self.screen_info.get("primary", (0, 0))
         debug_log(f"APPLY: path={self.selected_path} ext={ext} screen={pw}x{ph}")
 
         if ext in IMAGE_EXTS:
@@ -757,6 +839,7 @@ class MainWindow(QMainWindow):
                 volume=self.volume_slider.value() / 100.0,
                 auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
                 auto_pause_battery=self.pause_batt_checkbox.isChecked(),
+                monitor=mon,
             )
             self.video_window.failed.connect(self._on_video_failed)
             if self.video_window.start():

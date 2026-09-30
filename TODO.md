@@ -35,7 +35,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 - [x] ⭐ **Pause/resume rules** — pause video when a fullscreen app runs
   (games) or on battery. Lively does this; big perceived-quality win, small
   code (poll foreground window / `GetSystemPowerStatus`).
-- [ ] **Multi-monitor selection** — per-monitor wallpaper choice. The
+- [x] **Multi-monitor selection** — per-monitor wallpaper choice. The
   measurement code already detects all monitors.
 - [ ] **Linux packaging:** AppImage via CI (`ubuntu-latest` + PyInstaller +
   `linuxdeploy`). Flatpak is a bad fit (sandbox can't reach host `mpv`).
