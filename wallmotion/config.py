@@ -1,7 +1,8 @@
-"""Cesta ke konfiguracnimu souboru aplikace."""
+"""Application config file location (platform-specific, see wallmotion.paths)."""
 
 from __future__ import annotations
 
-import os
+from wallmotion.paths import config_path
 
-CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".live_wallpaper_config.json")
+# Kept as a module constant for backward compatibility (ui.py imports it).
+CONFIG_PATH = str(config_path())

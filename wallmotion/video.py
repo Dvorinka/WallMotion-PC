@@ -1,4 +1,4 @@
-"""Video tapeta: prehravani pres Qt + malovani snimku pres GDI na plochu."""
+"""Video wallpaper: playback via Qt + frame painting via GDI onto the desktop."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoFrame, QVideo
 from PySide6.QtWidgets import QWidget
 
 from wallmotion import screens
+from wallmotion.autopause import (
+    POLL_INTERVAL_MS,
+    RESUME_AFTER_CLEAN_POLLS,
+    is_fullscreen_app_active,
+    is_on_battery,
+    should_pause,
+)
 from wallmotion.utils import _quiet_ffmpeg, debug_log
 from wallmotion.win32 import (
     _BLACKNESS,
@@ -40,33 +47,44 @@ from wallmotion.win32 import (
 
 
 class VideoWallpaperWindow(QWidget):
-    """Video tapeta vnorena do WorkerW za ikonami plochy.
+    """Video wallpaper embedded into WorkerW behind desktop icons.
 
-    Zamerne NEPOUZIVA QVideoWidget: Qt totiz vnoreneho potomka ciziho okna
-    povazuje za „neexponovaneho“ a nikdy mu nedoruci paint eventy (ani
-    QVideoWidget pak nic nevykresli, zustane cerny). Misto toho bereme
-    snimky pres QVideoSink (ty chodi spolehlive) a malujeme je primo pres
-    GDI (StretchDIBits) na HDC naseho okna - to funguje bez ohledu na Qt.
+    Deliberately does NOT use QVideoWidget: Qt treats an embedded child
+    of a foreign window as "not exposed" and never delivers paint events
+    to it (so QVideoWidget would stay black). Instead we take frames via
+    QVideoSink (those arrive reliably) and paint them directly via GDI
+    (StretchDIBits) onto our window HDC - this works regardless of Qt.
     """
 
     failed = Signal(str)
 
-    def __init__(self, video_path: str, muted: bool = True, volume: float = 0.3):
+    def __init__(self, video_path: str, muted: bool = True, volume: float = 0.3,
+                 auto_pause_fullscreen: bool = True,
+                 auto_pause_battery: bool = False,
+                 monitor: dict | None = None):
         super().__init__()
-        # Bez ramecku, bez focusu, bez aktivace - nesmi krast kliky/focus.
-        # Zadny layout ani potomek: cele okno je platno, maluje se pres GDI.
+        # No frame, no focus, no activation - must not steal clicks/focus.
+        # No layout or children: the whole window is a canvas painted via GDI.
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowDoesNotAcceptFocus
             | Qt.BypassWindowManagerHint
         )
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        # Qt uroveň: ignoruj mys, at kliky padaji na plochu
+        # Qt level: ignore mouse so clicks fall through to the desktop
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         self.video_path = video_path
         self._muted = bool(muted)
         self._volume = max(0.0, min(1.0, float(volume)))
+        # Selected monitor {x, y, w, h} in physical pixels, or None = all.
+        self._monitor = dict(monitor) if monitor else None
+        # Auto-pause rules (fullscreen app / battery). Timer starts in start().
+        self._pause_on_fullscreen = bool(auto_pause_fullscreen)
+        self._pause_on_battery = bool(auto_pause_battery)
+        self._autopause_timer = None
+        self._autopaused = False
+        self._clean_polls = 0
 
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
@@ -79,33 +97,33 @@ class VideoWallpaperWindow(QWidget):
             self.player.errorOccurred.connect(self._on_player_error)
         except Exception:
             pass
-        # Nativni nekonecna smycka staci sama. Rucni restart pres
-        # mediaStatusChanged by se s ni hadal a zpusoboval vicenasobne
-        # otevirani souboru, tak ho tu schvalne nepripojujeme.
+        # Native infinite loop is enough on its own. A manual restart via
+        # mediaStatusChanged would fight with it and cause repeated file
+        # reopening, so we deliberately do not connect it here.
         try:
             self.player.setLoops(QMediaPlayer.Loops.Infinite)
         except Exception:
             self.player.mediaStatusChanged.connect(self._loop_video)
 
         self._hdc = 0
-        self._canvas = 0  # nativni HWND platna (potomek WorkerW, zadne Qt okno)
-        self._dw = 0  # sirka platna ve fyzickych pixelech (dle WorkerW)
+        self._canvas = 0  # native canvas HWND (WorkerW child, no Qt window)
+        self._dw = 0  # canvas width in physical pixels (per WorkerW)
         self._dh = 0
         self._frame_size = (0, 0)
         self._frames = 0
         self._blits_ok = 0
         self._blit_fail = 0
-        # mod vykreslovani: "coloroncolor" (rychly) | "halftone" (hezci, 4x pomalejsi)
+        # render mode: "coloroncolor" (fast) | "halftone" (nicer, 4x slower)
         self._blit_mode = "coloroncolor"
-        self._bmi = None  # kesovane BITMAPINFO pro aktualni src rozmer
-        # Ochrana proti zahlceni: zpracuj nejvys ~40 snimku/s, zbytek zahod.
-        # Jinak se pri 60fps / pomalem blitu fronta snimku nafukuje do pameti
-        # a system muze zamrznout. Bezne 24-30fps video prochazi bez skipu.
+        self._bmi = None  # cached BITMAPINFO for the current src size
+        # Flood guard: process at most ~40 frames/s, drop the rest.
+        # Otherwise with 60fps / slow blit the frame queue balloons in memory
+        # and the system may freeze. Usual 24-30fps video passes without skips.
         self._proc_min_interval = 0.025
         self._last_proc_t = 0.0
         self._skipped = 0
-        # Nejvetsi snimek, jaky jeste malujeme 1:1. Vetsi (4K/8K z YouTube)
-        # nejdriv rychle zmensime, at GDI nezahltime desitkami MB na snimek.
+        # Largest frame still painted 1:1. Bigger ones (4K/8K from YouTube)
+        # are downscaled first, so GDI is not flooded with tens of MB per frame.
         self._max_src_pixels = 2560 * 1440
         self._downscaled = False
 
@@ -115,7 +133,7 @@ class VideoWallpaperWindow(QWidget):
             self.player.play()
 
     def set_muted(self, muted: bool) -> None:
-        """F4: okamzite prepne zvuk, i kdyz video prave hraje."""
+        """F4: toggles sound immediately, even while video is playing."""
         self._muted = bool(muted)
         try:
             self.audio_output.setVolume(0.0 if self._muted else self._volume)
@@ -123,7 +141,7 @@ class VideoWallpaperWindow(QWidget):
             pass
 
     def set_volume(self, volume: float) -> None:
-        """Okamzite nastavi hlasitost (0.0-1.0), i kdyz video prave hraje."""
+        """Sets volume immediately (0.0-1.0), even while video is playing."""
         self._volume = max(0.0, min(1.0, float(volume)))
         try:
             if not self._muted:
@@ -131,21 +149,105 @@ class VideoWallpaperWindow(QWidget):
         except Exception:
             pass
 
+    def set_auto_pause(self, fullscreen: bool, battery: bool) -> None:
+        """Change auto-pause rules live (checkboxes in MainWindow)."""
+        self._pause_on_fullscreen = bool(fullscreen)
+        self._pause_on_battery = bool(battery)
+        self._clean_polls = 0
+        try:
+            if self._pause_on_fullscreen or self._pause_on_battery:
+                self._start_autopause_timer()
+            else:
+                self._stop_autopause_timer()
+                if self._autopaused:
+                    self._resume_playback("rules-off")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: set_auto_pause vyjimka: {e!r}")
+
+    def _start_autopause_timer(self) -> None:
+        try:
+            if self._autopause_timer is None:
+                self._autopause_timer = QTimer(self)
+                self._autopause_timer.timeout.connect(self._autopause_tick)
+            if not self._autopause_timer.isActive():
+                self._autopause_timer.start(POLL_INTERVAL_MS)
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: start timeru selhalo: {e!r}")
+
+    def _stop_autopause_timer(self) -> None:
+        try:
+            if self._autopause_timer is not None:
+                self._autopause_timer.stop()
+        except Exception:
+            pass
+
+    def _pause_playback(self, reason: str) -> None:
+        try:
+            self.player.pause()
+            self._autopaused = True
+            self._clean_polls = 0
+            debug_log(f"AUTOPAUSE: pauza ({reason})")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: pause selhalo: {e!r}")
+
+    def _resume_playback(self, reason: str) -> None:
+        try:
+            self.player.play()
+            self._autopaused = False
+            self._clean_polls = 0
+            debug_log(f"AUTOPAUSE: pokracuji ({reason})")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: play selhalo: {e!r}")
+
+    def _autopause_tick(self) -> None:
+        """Poll sensors every POLL_INTERVAL_MS. Pause at once, resume only
+        after RESUME_AFTER_CLEAN_POLLS clean polls (no alt-tab flapping)."""
+        try:
+            if not (self._pause_on_fullscreen or self._pause_on_battery):
+                return
+            if self._canvas == 0:
+                return  # already stopped
+            try:
+                fullscreen = (
+                    is_fullscreen_app_active() if self._pause_on_fullscreen else False
+                )
+                battery = is_on_battery() if self._pause_on_battery else False
+            except Exception:
+                return  # sensor failure: keep current state, try next poll
+            want_pause = should_pause(
+                fullscreen, battery,
+                pause_on_fullscreen=self._pause_on_fullscreen,
+                pause_on_battery=self._pause_on_battery,
+            )
+            if want_pause:
+                if not self._autopaused:
+                    self._pause_playback(
+                        f"fullscreen={fullscreen} battery={battery}"
+                    )
+                return
+            if self._autopaused:
+                self._clean_polls += 1
+                if self._clean_polls >= RESUME_AFTER_CLEAN_POLLS:
+                    self._resume_playback("clean")
+        except Exception as e:
+            debug_log(f"AUTOPAUSE: tick vyjimka: {e!r}")
+
     def _on_player_error(self, error, error_string):
         debug_log(f"PLAYER ERROR: {error} | {error_string}")
 
     def start(self) -> bool:
-        """Vytvori nativni platno pro video a spusti prehravani. Vrati True.
+        """Creates a native canvas for video and starts playback. Returns True.
 
-        Windows 11 „raised desktop“ (Progman ma WS_EX_NOREDIRECTIONBITMAP,
-        DefView je WS_EX_LAYERED): platno musi byt PRIMO potomek Progmanu
-        s WS_EX_LAYERED + SetLayeredWindowAttributes(alpha=255), z-orderovane
-        POD DefView (ikony) a NAD WorkerW (staticka tapeta). Bez vrstveneho
-        okna DWM video neskomponuje a zustane cerno/nic (doporuceni primo
-        od Microsoftu, stejne to dela Lively/Wallpaper Engine).
+        Windows 11 "raised desktop" (Progman has WS_EX_NOREDIRECTIONBITMAP,
+        DefView is WS_EX_LAYERED): the canvas must be a DIRECT child of Progman
+        with WS_EX_LAYERED + SetLayeredWindowAttributes(alpha=255), z-ordered
+        BELOW DefView (icons) and ABOVE WorkerW (static wallpaper). Without a
+        layered window DWM will not composite the video and it stays black /
+        empty (recommendation straight from Microsoft, same as Lively /
+        Wallpaper Engine does).
 
-        Starsi Windows (bez raised desktop): platno jako potomek WorkerW.
-        Snimky se maluji pres GDI v obou pripadech stejne.
+        Older Windows (no raised desktop): canvas as a WorkerW child.
+        Frames are painted via GDI the same way in both cases.
         """
         debug_log(f"START: path={self.video_path}")
         progman = win32gui.FindWindow("Progman", None)
@@ -169,8 +271,14 @@ class VideoWallpaperWindow(QWidget):
         try:
             px1, py1, px2, py2 = win32gui.GetWindowRect(progman)
             wx1, wy1, wx2, wy2 = win32gui.GetWindowRect(workerw)
-            w, h = max(1, wx2 - wx1), max(1, wy2 - wy1)
-            x, y = wx1 - px1, wy1 - py1
+            if self._monitor:
+                # Per-monitor video: canvas only above the selected monitor.
+                base = (px1, py1, px2, py2) if raised else (wx1, wy1, wx2, wy2)
+                x, y, w, h = screens.place_canvas(base, self._monitor)
+                debug_log(f"START: monitor canvas x={x} y={y} {w}x{h}")
+            else:
+                w, h = max(1, wx2 - wx1), max(1, wy2 - wy1)
+                x, y = wx1 - px1, wy1 - py1
         except Exception as e:
             debug_log(f"START: GetWindowRect selhalo: {e!r}")
             return False
@@ -183,7 +291,8 @@ class VideoWallpaperWindow(QWidget):
             )
         else:
             parent = workerw
-            x, y = 0, 0
+            if not self._monitor:
+                x, y = 0, 0
             exstyle = _WS_EX_NOACTIVATE | _WS_EX_TRANSPARENT | _WS_EX_TOOLWINDOW
         try:
             cls_ok = _ensure_canvas_class()
@@ -208,14 +317,14 @@ class VideoWallpaperWindow(QWidget):
         self._dw, self._dh = int(w), int(h)
 
         if raised:
-            # plne nepruhledne vrstvene okno, jinak DWM neskomponuje
+            # fully opaque layered window, otherwise DWM will not composite
             try:
                 _USER32.SetLayeredWindowAttributes(
                     self._canvas, 0, 255, _LWA_ALPHA
                 )
             except Exception as e:
                 debug_log(f"START: SetLayeredWindowAttributes: {e!r}")
-            # Z-order choreografie: platno POD ikony, WorkerW POD platno
+            # Z-order choreography: canvas BELOW icons, WorkerW BELOW canvas
             try:
                 if defview:
                     win32gui.SetWindowPos(
@@ -251,13 +360,15 @@ class VideoWallpaperWindow(QWidget):
             debug_log(f"START: GetDC selhalo: {e!r}")
             self._destroy_canvas()
             return False
-        _quiet_ffmpeg()  # pro jistotu znovu pred otevrenim souboru
+        _quiet_ffmpeg()  # just in case, again before opening the file
         self.player.setSource(QUrl.fromLocalFile(self.video_path))
         self.player.play()
         debug_log("START: play() zavolano -> OK")
-        # Watchdog: kdyz do 8 s neprijde ani snimek (nedejboze nepodporovany
-        # kodek typu AV1 - prehravac se zasekne v bufferingu bez chyby),
-        # platno zase zrusime, at nezustane svitit naprazdno.
+        if self._pause_on_fullscreen or self._pause_on_battery:
+            self._start_autopause_timer()
+        # Watchdog: if no frame arrives within 8 s (e.g. unsupported codec
+        # like AV1 - the player gets stuck buffering without an error),
+        # destroy the canvas again so it does not stay up empty.
         try:
             QTimer.singleShot(8000, self._check_progress)
         except Exception:
@@ -267,9 +378,9 @@ class VideoWallpaperWindow(QWidget):
     def _check_progress(self):
         try:
             if self._canvas == 0:
-                return  # uz zastaveno, vse OK
+                return  # already stopped, all OK
             if self._frames > 0:
-                return  # hraje, vse OK
+                return  # playing, all OK
             pos = 0
             try:
                 pos = self.player.position()
@@ -292,12 +403,12 @@ class VideoWallpaperWindow(QWidget):
         return bmi
 
     def _blit_stretch(self, img: QImage, sw: int, sh: int) -> int:
-        """Cover pres GDI StretchDIBits (rychly COLORONCOLOR rezim).
-        Zero-copy: predava se primo pointer na buffer QImage pres writable
-        memoryview (bits -> from_buffer -> cast), bez kopie celeho snimku
-        (1080p RGB32 = ~8 MB na snimek). img i view ziji po celou dobu
-        synchronniho volani, takze je to bezpecne. Pri neuspechu zalozni
-        kopie pres bytes(). BITMAPINFO je kesovane podle rozmeru videa."""
+        """Cover via GDI StretchDIBits (fast COLORONCOLOR mode).
+        Zero-copy: passes the QImage buffer pointer directly via a writable
+        memoryview (bits -> from_buffer -> cast), without copying the whole
+        frame (1080p RGB32 = ~8 MB per frame). img and view live for the whole
+        synchronous call, so it is safe. On failure, fallback copy via
+        bytes(). BITMAPINFO is cached per video size."""
         scale = max(self._dw / sw, self._dh / sh)
         dw, dh = int(sw * scale), int(sh * scale)
         dx, dy = int((self._dw - dw) / 2), int((self._dh - dh) / 2)
@@ -306,14 +417,14 @@ class VideoWallpaperWindow(QWidget):
         try:
             n = img.sizeInBytes()
             if n > 0:
-                mv = img.bits()  # writable memoryview, zadna kopie
+                mv = img.bits()  # writable memoryview, no copy
                 _keepalive = (ctypes.c_char * n).from_buffer(mv)
                 buf = ctypes.cast(_keepalive, ctypes.c_void_p)
         except Exception:
             buf = None
         if buf is None:
             try:
-                raw = bytes(img.constBits())  # zaloha s kopii
+                raw = bytes(img.constBits())  # fallback with copy
                 if not raw:
                     return 0
                 _keepalive = raw
@@ -344,7 +455,7 @@ class VideoWallpaperWindow(QWidget):
         try:
             now = time.perf_counter()
             if self._frames > 0 and (now - self._last_proc_t) < self._proc_min_interval:
-                # nestihame: snimek zahodit (fronta se nesmi nafukovat)
+                # lagging behind: drop the frame (queue must not grow)
                 self._skipped += 1
                 return
             img = frame.toImage()
@@ -358,7 +469,7 @@ class VideoWallpaperWindow(QWidget):
                 debug_log(f"FRAME: spatny rozmer src={sw}x{sh} dst={self._dw}x{self._dh}")
                 return
             if sw * sh > self._max_src_pixels:
-                # obri snimek (4K/8K): rychle zmensit, jinak OOM/zaseknuti
+                # huge frame (4K/8K): downscale fast, else OOM/stall
                 f = (self._max_src_pixels / (sw * sh)) ** 0.5
                 nw, nh = max(2, int(sw * f)), max(2, int(sh * f))
                 img = img.scaled(
@@ -377,7 +488,7 @@ class VideoWallpaperWindow(QWidget):
                     f"dst={self._dw}x{self._dh} mode={self._blit_mode}"
                 )
             if (sw, sh) != self._frame_size:
-                # zmena rozmeru videa -> premazat platno, at nezustanou okraje
+                # video size changed -> repaint canvas so no borders remain
                 self._frame_size = (sw, sh)
                 self._bmi = None
                 try:
@@ -405,10 +516,10 @@ class VideoWallpaperWindow(QWidget):
                 pass
 
     def _embed_into_desktop_DEPRECATED(self):
-        """NEPOUZIVA SE: stary zpusob vnoreni Qt okna (SetParent + konverze
-        stylu). Qt takhle vnorene okno nikdy nevykreslovalo, proto start()
-        ted vytvari nativni WS_CHILD platno rovnou v WorkerW. Ponechano jen
-        pro historii, casem smazat."""
+        """UNUSED: old way of embedding the Qt window (SetParent + style
+        conversion). Qt never painted a window embedded this way, so start()
+        now creates a native WS_CHILD canvas directly in WorkerW. Kept only
+        for history, delete later."""
         GWL_STYLE = -16
         GWL_EXSTYLE = -20
         WS_CHILD = 0x40000000
@@ -432,7 +543,7 @@ class VideoWallpaperWindow(QWidget):
         vx, vy, vw, vh = screens.get_virtual_screen_rect()
 
         if workerw == 0:
-            # Kdyz WorkerW neexistuje, aspon posli okno dospodu a zpruhledni pro mys
+            # When WorkerW does not exist, at least send the window to the bottom and make it mouse-transparent
             try:
                 style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
                 style = style & ~WS_POPUP & ~WS_CAPTION & ~WS_THICKFRAME
@@ -454,25 +565,25 @@ class VideoWallpaperWindow(QWidget):
             return
 
         try:
-            # 1) predelat z WS_POPUP na WS_CHILD, at je to opravdu potomek plochy
+            # 1) switch from WS_POPUP to WS_CHILD so it is really a desktop child
             style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
             style = style & ~WS_POPUP & ~WS_CAPTION & ~WS_THICKFRAME
             style = style & ~WS_MINIMIZEBOX & ~WS_MAXIMIZEBOX & ~WS_SYSMENU
             style = style | WS_CHILD | WS_VISIBLE
             win32gui.SetWindowLong(hwnd, GWL_STYLE, style)
 
-            # 2) ex-style: nikdy nebrat focus, nikdy nebrat kliky
+            # 2) ex-style: never take focus, never take clicks
             ex = win32gui.GetWindowLong(hwnd, GWL_EXSTYLE)
             ex = ex & ~WS_EX_TOPMOST & ~WS_EX_APPWINDOW
             ex = ex | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW
             win32gui.SetWindowLong(hwnd, GWL_EXSTYLE, ex)
 
-            # 3) vnoreni do WorkerW
+            # 3) embed into WorkerW
             win32gui.SetParent(hwnd, workerw)
 
-            # 4) roztahnout pres cele WorkerW ( souradnice potomka jsou relativni
-            #    k WorkerW, takze vzdy 0,0 + sirka/vyska WorkerW ).
-            #    Zadna virtual-screen matematika - WorkerW uz ma spravnou velikost.
+            # 4) stretch over the whole WorkerW (child coords are relative
+            #    to WorkerW, so always 0,0 + WorkerW width/height).
+            #    No virtual-screen math - WorkerW already has the right size.
             try:
                 wx1, wy1, wx2, wy2 = win32gui.GetWindowRect(workerw)
                 w, h = max(1, wx2 - wx1), max(1, wy2 - wy1)
@@ -483,11 +594,11 @@ class VideoWallpaperWindow(QWidget):
                 hwnd, win32con.HWND_BOTTOM, 0, 0, w, h,
                 win32con.SWP_NOACTIVATE | win32con.SWP_SHOWWINDOW | win32con.SWP_ASYNCWINDOWPOS,
             )
-            # POZOR: zadny self.resize(w, h)! w/h jsou fyzicke pixely z WinAPI,
-            # zatimco Qt pracuje v logickych (pri 150% skalovani je 1920x1080
-            # fyzicky = 1280x720 logicky). Nativni velikost uz sedi s Qt
-            # geometrii z __init__, dalsi resize by video rozhodil.
-            # Rozmer si jen ulozime pro GDI vykreslovani snimku.
+            # NOTE: no self.resize(w, h)! w/h are physical pixels from WinAPI,
+            # while Qt works in logical ones (at 150% scaling, 1920x1080
+            # physical = 1280x720 logical). Native size already matches the Qt
+            # geometry from __init__, another resize would break the video.
+            # Just store the size for GDI frame painting.
             self._dw, self._dh = int(w), int(h)
             debug_log(f"EMBED: canvas={w}x{h}")
         except Exception as e:
@@ -518,6 +629,8 @@ class VideoWallpaperWindow(QWidget):
             f"STOP: frames={self._frames} skipped={self._skipped} "
             f"blits_ok={self._blits_ok} blit_fail={self._blit_fail}"
         )
+        self._stop_autopause_timer()
+        self._autopaused = False
         try:
             self.player.stop()
         except Exception:

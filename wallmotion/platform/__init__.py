@@ -1,8 +1,8 @@
-"""Platform backend seam: rozhrani tapety pro jednotlive OS.
+"""Platform backend seam: wallpaper interface for individual OSes.
 
-Windows backend pouziva stavajici GDI/WorkerW trik (wallmotion.win32).
-Linux/macOS backendy se doplni sem, aniz by se sahalo na zbytek aplikace:
-UI, stahovani, konfigurace i jazyky jsou uz dnes multiplatformni.
+Windows backend uses the existing GDI/WorkerW trick (wallmotion.win32).
+Linux/macOS backends will be added here without touching the rest of the app:
+UI, downloads, config and languages are already multiplatform today.
 """
 
 from __future__ import annotations
@@ -12,24 +12,32 @@ from abc import ABC, abstractmethod
 
 
 class WallpaperBackend(ABC):
-    """Rozhrani, ktere musi splnit backend kazde platformy."""
+    """Interface every platform backend must implement."""
 
     name: str = "base"
 
     @abstractmethod
     def set_static_wallpaper(self, image_path: str) -> None:
-        """Nastavi staticky obrazek jako tapetu plochy."""
+        """Set a static image as the desktop wallpaper."""
 
     @abstractmethod
     def measure_screens(self) -> dict:
-        """Zmeri obrazovky (stejny format jako wallmotion.screens)."""
+        """Measure screens (same format as wallmotion.screens)."""
 
 
-def get_backend() -> WallpaperBackend:
-    """Vrati backend pro aktualni OS. Nezname OS vyhodi vyjimku."""
+def get_backend():
+    """Return the backend for the current OS.
+
+    Windows: WindowsBackend (GDI/WorkerW). Linux: detected session
+    backend (x11/wlroots/kde/gnome) or None when nothing fits.
+    Unknown OS raises NotImplementedError.
+    """
     if sys.platform == "win32":
         from wallmotion.platform.windows import WindowsBackend
         return WindowsBackend()
+    if sys.platform.startswith("linux"):
+        from wallmotion.platform import linux as linux_platform
+        return linux_platform.detect_backend()
     raise NotImplementedError(
-        f"Platforma {sys.platform} zatim nema backend (viz TODO.md)"
+        f"Platform {sys.platform} has no backend yet (see TODO.md)"
     )

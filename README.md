@@ -54,7 +54,7 @@ Built with PyInstaller (`--onefile --windowed`), ~65 MB, needs no Python install
 
 ```bash
 pip install pyinstaller
-python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --noconfirm main.py
+python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --add-data "locales;locales" --noconfirm main.py
 ```
 
 ### Autostart with Windows
@@ -65,9 +65,33 @@ Place a shortcut to `WallMotion.exe` (or `main.py`) in:
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 ```
 
+### Linux support (v1)
+
+The same UI runs on Linux; rendering is delegated to system tools
+detected from `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
+
+| Session | Image | Video |
+|---|---|---|
+| X11 | `feh --bg-fill` | `xwinwrap` + `mpv` fullscreen |
+| Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (all outputs) |
+| Wayland + GNOME | `gsettings` | not supported (needs the Hanabi Shell extension) |
+
+Install what your session needs, e.g. `sudo apt install feh mpv`
+(X11), or `mpvpaper` / `swww` from your distro repos. The AppImage
+needs host Mesa/GL libraries (`libgl1 libegl1` — preinstalled on
+practically every desktop distro). Missing tools
+are reported in the status line instead of crashing. Volume, mute and
+pause go through mpv JSON IPC; battery auto-pause reads
+`/sys/class/power_supply`.
+
+Status: implemented but not yet tested on real hardware — see
+[TODO.md](TODO.md). Reports welcome (attach
+`~/.local/state/wallmotion/debug.log`).
+
 ### Known limitations
 
-- Primary-monitor focused; multi-monitor spanning is a possible extension.
+- Per-monitor video/image selection in the UI; true per-monitor static
+  images on Windows still use one fitted image for the whole desktop.
 - Video formats depend on Qt Multimedia codecs (mp4/H.264 works out of the box; AV1/VP9 files are refused with a message, the downloader only ever fetches H.264).
 - The video wallpaper needs the app running – after a reboot, launch it again (or use autostart).
 - YouTube downloads need `yt-dlp` (`pip install -r requirements.txt` includes it, ffmpeg rides along via `imageio-ffmpeg`).
@@ -132,7 +156,7 @@ Sbalené přes PyInstaller (`--onefile --windowed`), cca 65 MB, nepotřebuje Pyt
 
 ```bash
 pip install pyinstaller
-python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --noconfirm main.py
+python -m PyInstaller --onefile --windowed --name WallMotion --icon assets\icon.ico --add-data "assets;assets" --add-data "locales;locales" --noconfirm main.py
 ```
 
 ### Autostart s Windows
@@ -143,9 +167,30 @@ Zkratku na `WallMotion.exe` (nebo `main.py`) dej do:
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 ```
 
+### Podpora Linuxu (v1)
+
+Na Linuxu běží stejné UI; vykreslování řeší systémové nástroje
+detekované z `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
+
+| Prostředí | Obrázek | Video |
+|---|---|---|
+| X11 | `feh --bg-fill` | `xwinwrap` + `mpv` fullscreen |
+| Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (všechny výstupy) |
+| Wayland + GNOME | `gsettings` | nepodporováno (chce to rozšíření Hanabi) |
+
+Nainstaluj, co tvoje session potřebuje, např. `sudo apt install feh mpv`
+(X11), nebo `mpvpaper` / `swww` z repositářů distra. Chybějící nástroje
+appka nahlásí ve stavovém řádku, nespadne. Hlasitost, ztlumení a pauza
+jdou přes mpv JSON IPC; pauza na baterii čte `/sys/class/power_supply`.
+
+Stav: naimplementováno, ale neotestováno na reálném hardwaru — viz
+[TODO.md](TODO.md). Hlas chyby s logem
+`~/.local/state/wallmotion/debug.log`.
+
 ### Známá omezení
 
-- Primárně jeden (primární) monitor; roztažení přes víc monitorů jde doplnit.
+- V UI jde vybrat monitor pro video i obrázek; statický obrázek na
+  Windows se pořád nastavuje jeden pro celou plochu.
 - Formáty videa závisí na kodecích v Qt Multimedia (mp4/H.264 bez problémů; soubory AV1/VP9 se odmítnou s hláškou, stahovač tahá jen H.264).
 - Video tapeta potřebuje běžící aplikaci – po restartu PC ji spusť znovu (nebo autostart).
 - Stahování z YouTube potřebuje `yt-dlp` (je v `requirements.txt`, ffmpeg se přibalí přes `imageio-ffmpeg`).

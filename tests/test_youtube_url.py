@@ -7,7 +7,9 @@ required, so they run on any OS.
 from wallmotion.youtube import (
     _YT_FORMAT_MERGED,
     _YT_FORMAT_SINGLE,
+    is_playlist_url,
     is_valid_youtube_url,
+    parse_playlist_entries,
 )
 
 
@@ -121,3 +123,60 @@ class TestFormatSelectors:
         for selector in (_YT_FORMAT_MERGED, _YT_FORMAT_SINGLE):
             for branch in selector.split("/"):
                 assert "ba[" in branch or "acodec" in branch
+
+
+class TestPlaylistUrls:
+    def test_playlist_path(self):
+        assert is_playlist_url(
+            "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+        )
+
+    def test_watch_is_not_playlist(self):
+        assert not is_playlist_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+    def test_watch_with_list_is_single_video(self):
+        # /watch&list= downloads just that video (no surprise bulk download).
+        assert not is_playlist_url(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLtest"
+        )
+
+    def test_invalid_url_is_not_playlist(self):
+        assert not is_playlist_url("")
+        assert not is_playlist_url("https://notyoutube.com/playlist?list=x")
+
+
+class TestParsePlaylistEntries:
+    def test_extracts_id_title_url(self):
+        info = {"entries": [
+            {"id": "abc123", "title": "First video"},
+            {"id": "def456", "title": "Second video"},
+        ]}
+        entries = parse_playlist_entries(info)
+        assert entries == [
+            {"id": "abc123", "title": "First video",
+             "url": "https://www.youtube.com/watch?v=abc123"},
+            {"id": "def456", "title": "Second video",
+             "url": "https://www.youtube.com/watch?v=def456"},
+        ]
+
+    def test_skips_entries_without_id(self):
+        info = {"entries": [
+            {"title": "no id here"},
+            None,
+            "junk",
+            {"id": "ok1", "title": "OK"},
+        ]}
+        entries = parse_playlist_entries(info)
+        assert [e["id"] for e in entries] == ["ok1"]
+
+    def test_missing_title_falls_back_to_id(self):
+        entries = parse_playlist_entries({"entries": [{"id": "xyz"}]})
+        assert entries[0]["title"] == "xyz"
+
+    def test_respects_limit(self):
+        info = {"entries": [{"id": f"v{i}", "title": f"V{i}"} for i in range(10)]}
+        assert len(parse_playlist_entries(info, limit=3)) == 3
+
+    def test_empty_info(self):
+        assert parse_playlist_entries({}) == []
+        assert parse_playlist_entries({"entries": None}) == []
