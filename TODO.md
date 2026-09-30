@@ -44,8 +44,9 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   code (poll foreground window / `GetSystemPowerStatus`).
 - [x] **Multi-monitor selection** — per-monitor wallpaper choice. The
   measurement code already detects all monitors.
-- [ ] **Linux packaging:** AppImage via CI (`ubuntu-latest` + PyInstaller +
-  `linuxdeploy`). Flatpak is a bad fit (sandbox can't reach host `mpv`).
+- [x] **Linux packaging:** AppImage via CI (`appimage.yml`: PyInstaller
+  onefile + `appimagetool`, attaches to tag Releases next to the .exe).
+  Flatpak is a bad fit (sandbox can't reach host `mpv`).
 
 ## P3 — Bigger ideas
 

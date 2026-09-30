@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with single-instance forwarding to the running app.
 - Update check: weekly GitHub Releases poll with tray notice,
   manual check in the tray menu.
+- Linux packaging: AppImage built in CI (`appimage.yml`) and attached
+  to tag Releases next to the Windows .exe.
 - Code comments translated to English (user-facing strings stay
   Czech/English in `locales/`).
 
