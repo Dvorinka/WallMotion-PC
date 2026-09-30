@@ -41,5 +41,9 @@
   "yt_error": "Download failed: {e}",
   "yt_invalid_url": "Invalid or unsupported YouTube link.",
   "yt_need_ffmpeg": "This video has separate video and audio tracks – install ffmpeg (run: winget install ffmpeg), restart the app and download it again.",
-  "yt_placeholder": "Paste a YouTube link…"
+  "yt_placeholder": "Paste a YouTube link…",
+  "yt_playlist_empty": "Playlist is empty or could not be loaded.",
+  "yt_playlist_loading": "Loading playlist…",
+  "yt_playlist_title": "Pick videos from the playlist",
+  "yt_queue_progress": "Downloading {i}/{n}…"
 }

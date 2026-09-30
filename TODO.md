@@ -28,7 +28,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   `mpvpaper` (Wayland), `xwinwrap`+`mpv` (X11), `swww`/`feh`/`gsettings`/
   `plasma-apply-wallpaperimage` for static images. GNOME-Wayland video is a
   documented gap (needs a shell extension, e.g. Hanabi).
-- [ ] **YouTube playlist support.** Currently `noplaylist: True` in
+- [x] **YouTube playlist support.** Currently `noplaylist: True` in
   `DownloadWorker`. Plan: accept playlist URLs, fetch `extract_flat` entries,
   show a picker dialog, download selected item(s). Keep the 500 MB cap and
   H.264/1080p filters per item. URL validator already allows `/playlist`.

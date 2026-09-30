@@ -16,6 +16,9 @@ YT_DIR = str(downloads_dir())
 # F1: pouzivat smi jen http(s) odkazy na zname YouTube domeny.
 MAX_YT_URL_LENGTH = 2048
 
+# Playlist picker: max polozek nactenych z playlistu (extract_flat, bez stahovani).
+MAX_PLAYLIST_ENTRIES = 50
+
 
 def is_valid_youtube_url(url: str) -> bool:
     """Overi, ze URL je bezpecny YouTube odkaz, nez se preda yt-dlp.
@@ -74,6 +77,89 @@ def is_valid_youtube_url(url: str) -> bool:
     if "v=" in query:
         return True
     return False
+
+
+def is_playlist_url(url: str) -> bool:
+    """True when the URL points to a playlist (picker flow).
+
+    Only /playlist URLs open the picker. A /watch URL with &list=
+    downloads just that single video (current behavior) - predictable
+    and free of surprise bulk downloads.
+    """
+    if not is_valid_youtube_url(url):
+        return False
+    try:
+        path = urllib.parse.urlparse(url.strip()).path or ""
+    except Exception:
+        return False
+    return path.startswith("/playlist")
+
+
+def parse_playlist_entries(info: dict, limit: int = MAX_PLAYLIST_ENTRIES) -> list:
+    """Extract [{id, title, url}] from extract_flat playlist info.
+
+    Pure function (no network) - unit tested. Skips entries without id.
+    """
+    entries = []
+    try:
+        raw = info.get("entries") or []
+    except Exception:
+        return entries
+    for e in list(raw)[: max(0, int(limit))]:
+        try:
+            if not isinstance(e, dict):
+                continue
+            vid = e.get("id")
+            if not vid:
+                continue
+            title = e.get("title") or vid
+            entries.append({
+                "id": vid,
+                "title": title,
+                "url": f"https://www.youtube.com/watch?v={vid}",
+            })
+        except Exception:
+            continue
+    return entries
+
+
+class PlaylistFetchWorker(QThread):
+    """Fetch playlist entries (titles only, no download) on a background thread."""
+
+    loaded = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self.url = url.strip()
+
+    def run(self):
+        if not is_playlist_url(self.url):
+            self.error.emit("not a playlist URL")
+            return
+        try:
+            import yt_dlp
+        except ImportError:
+            self.error.emit("yt-dlp není nainstalované (pip install yt-dlp)")
+            return
+        try:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": True,  # jen seznam, zadne stahovani
+                "noplaylist": False,
+                "playlistend": MAX_PLAYLIST_ENTRIES,
+                "skip_download": True,
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(self.url, download=False)
+            entries = parse_playlist_entries(info or {})
+            if entries:
+                self.loaded.emit(entries)
+            else:
+                self.error.emit("EMPTY_PLAYLIST")
+        except Exception as e:
+            self.error.emit(str(e)[:300])
 
 
 def resolve_downloaded_path(info: dict, ydl) -> str:

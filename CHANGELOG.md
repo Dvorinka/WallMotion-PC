@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-pause rules: video pauses when a fullscreen app runs (games)
   and optionally on battery power; both checkboxes in the UI,
   remembered between launches.
+- YouTube playlist support: `/playlist` links open a picker dialog,
+  selected videos download sequentially (500 MB cap and H.264/1080p
+  guards apply per item).
 
 ## [1.0.0] - 2026-09-14
 

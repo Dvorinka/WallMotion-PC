@@ -18,11 +18,15 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -57,6 +61,8 @@ from wallmotion.wallpaper import (
 from wallmotion.youtube import (
     YT_DIR,
     DownloadWorker,
+    PlaylistFetchWorker,
+    is_playlist_url,
     is_valid_youtube_url,
 )
 
@@ -170,6 +176,10 @@ class MainWindow(QMainWindow):
         self.lang = "cs"
         self.theme = "dark"
         self.yt_worker = None
+        self.pl_fetch_worker = None
+        self._pl_queue = []
+        self._pl_active = False
+        self._pl_current = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -520,6 +530,17 @@ class MainWindow(QMainWindow):
                 s["yt_error"].format(e=s["yt_invalid_url"])
             )
             return
+        if is_playlist_url(url):
+            self._fetch_playlist(url)
+            return
+        self._pl_active = False
+        self._pl_queue = []
+        self._pl_current = None
+        self._start_download_worker(url)
+
+    def _start_download_worker(self, url: str):
+        """Start DownloadWorker for one video (single URL or queue item)."""
+        s = self.S()
         if self.yt_worker is not None and self.yt_worker.isRunning():
             return
         self.yt_button.setEnabled(False)
@@ -533,8 +554,102 @@ class MainWindow(QMainWindow):
         self.yt_worker.error.connect(lambda _e: self.yt_button.setEnabled(True))
         self.yt_worker.start()
 
+    def _fetch_playlist(self, url: str):
+        """Load playlist entries on a background thread, then show picker."""
+        if self.yt_worker is not None and self.yt_worker.isRunning():
+            return
+        if self.pl_fetch_worker is not None and self.pl_fetch_worker.isRunning():
+            return
+        self.yt_button.setEnabled(False)
+        self.status_label.setText(self.S()["yt_playlist_loading"])
+        debug_log(f"YT playlist: nacitam {url}")
+        self.pl_fetch_worker = PlaylistFetchWorker(url, self)
+        self.pl_fetch_worker.loaded.connect(self._on_playlist_loaded)
+        self.pl_fetch_worker.error.connect(self._on_playlist_error)
+        self.pl_fetch_worker.loaded.connect(
+            lambda _e: self.yt_button.setEnabled(True)
+        )
+        self.pl_fetch_worker.error.connect(
+            lambda _e: self.yt_button.setEnabled(True)
+        )
+        self.pl_fetch_worker.start()
+
+    def _on_playlist_loaded(self, entries: list):
+        s = self.S()
+        debug_log(f"YT playlist: nacteno {len(entries)} polozek")
+        dialog = QDialog(self)
+        dialog.setWindowTitle(s["yt_playlist_title"])
+        dialog.setMinimumWidth(360)
+        layout = QVBoxLayout(dialog)
+        list_widget = QListWidget(dialog)
+        list_widget.setSelectionMode(QListWidget.MultiSelection)
+        for e in entries:
+            try:
+                item = QListWidgetItem(str(e.get("title") or e.get("id")))
+                item.setData(Qt.UserRole, e.get("url"))
+                list_widget.addItem(item)
+            except Exception:
+                continue
+        layout.addWidget(list_widget)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.Accepted:
+            self.status_label.setText(s["ready"])
+            return
+        urls = []
+        for item in list_widget.selectedItems():
+            try:
+                u = item.data(Qt.UserRole)
+                if u:
+                    urls.append(u)
+            except Exception:
+                continue
+        if not urls:
+            self.status_label.setText(s["ready"])
+            return
+        # Sequential queue: each item keeps the 500 MB + H.264/1080p guards
+        # of DownloadWorker; last downloaded video ends up as wallpaper.
+        total = len(urls)
+        self._pl_queue = [(i + 1, total, u) for i, u in enumerate(urls[1:])]
+        self._pl_active = True
+        self._pl_current = (1, total)
+        self.status_label.setText(s["yt_queue_progress"].format(i=1, n=total))
+        self._start_download_worker(urls[0])
+
+    def _on_playlist_error(self, err: str):
+        debug_log(f"YT playlist CHYBA: {err}")
+        if err == "EMPTY_PLAYLIST":
+            err = self.S()["yt_playlist_empty"]
+        self.status_label.setText(self.S()["yt_error"].format(e=err))
+
+    def _on_queue_item_done(self):
+        """Start next queued playlist item, if any."""
+        if not self._pl_active:
+            return
+        if self._pl_queue:
+            i, n, url = self._pl_queue.pop(0)
+            self._pl_current = (i, n)
+            self.status_label.setText(
+                self.S()["yt_queue_progress"].format(i=i, n=n)
+            )
+            self._start_download_worker(url)
+        else:
+            self._pl_active = False
+            self._pl_current = None
+
     def _on_yt_progress(self, pct: str):
-        self.status_label.setText(self.S()["yt_downloading"].format(p=pct))
+        if self._pl_active and self._pl_current:
+            i, n = self._pl_current
+            self.status_label.setText(
+                self.S()["yt_queue_progress"].format(i=i, n=n)
+                + " " + self.S()["yt_downloading"].format(p=pct)
+            )
+        else:
+            self.status_label.setText(self.S()["yt_downloading"].format(p=pct))
 
     def _on_yt_finished(self, path: str):
         s = self.S()
@@ -543,12 +658,16 @@ class MainWindow(QMainWindow):
         self._on_file_chosen(path)
         # po stazeni rovnou nastavit jako tapetu
         self.apply_wallpaper()
+        # fronta playlistu: pokracovat dalsi vybranou polozkou
+        self._on_queue_item_done()
 
     def _on_yt_error(self, err: str):
         debug_log(f"YT CHYBA: {err}")
         if err == "NEED_FFMPEG":
             err = self.S()["yt_need_ffmpeg"]
         self.status_label.setText(self.S()["yt_error"].format(e=err))
+        # fronta playlistu: pokazene video preskocit, jet dal
+        self._on_queue_item_done()
 
     def open_downloads_folder(self):
         """Otevre slozku se stazenymi videi v Pruzkumniku."""
