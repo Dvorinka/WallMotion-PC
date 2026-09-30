@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guards apply per item).
 - Multi-monitor selection: video wallpaper (and image fit) can target
   one monitor or span all; choice remembered between launches.
+- Linux support v1: session detection (`XDG_SESSION_TYPE` /
+  `XDG_CURRENT_DESKTOP`), image backends (`feh`, `swww`, `gsettings`,
+  `plasma-apply-wallpaperimage`), video via `mpvpaper` / `xwinwrap`+`mpv`,
+  live volume/mute/pause over mpv JSON IPC, sysfs battery sensor,
+  missing-tool messages in the UI. GNOME-Wayland video remains
+  unsupported (Hanabi extension needed). Not yet tested on hardware.
 - Code comments translated to English (user-facing strings stay
   Czech/English in `locales/`).
 

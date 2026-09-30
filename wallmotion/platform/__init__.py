@@ -25,11 +25,19 @@ class WallpaperBackend(ABC):
         """Measure screens (same format as wallmotion.screens)."""
 
 
-def get_backend() -> WallpaperBackend:
-    """Return the backend for the current OS. Unknown OS raises an exception."""
+def get_backend():
+    """Return the backend for the current OS.
+
+    Windows: WindowsBackend (GDI/WorkerW). Linux: detected session
+    backend (x11/wlroots/kde/gnome) or None when nothing fits.
+    Unknown OS raises NotImplementedError.
+    """
     if sys.platform == "win32":
         from wallmotion.platform.windows import WindowsBackend
         return WindowsBackend()
+    if sys.platform.startswith("linux"):
+        from wallmotion.platform import linux as linux_platform
+        return linux_platform.detect_backend()
     raise NotImplementedError(
-        f"Platforma {sys.platform} zatim nema backend (viz TODO.md)"
+        f"Platform {sys.platform} has no backend yet (see TODO.md)"
     )

@@ -6,13 +6,11 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 
 ## P1 — Foundation
 
-- [ ] ⭐ **Split `main.py` into a package.** 2000 lines in one file is the
-  #1 contributor blocker. Target layout and rationale:
-  `docs/OPENSOURCE_COMPLIANCE.md` §2. Zero behavior change — pure move.
-- [ ] ⭐ **Platform backend seam** (`wallmotion/platform/`): wrap the existing
-  Windows code behind a `WallpaperBackend` interface. This is the Linux port
-  map — do it *during* the split, not after. Interface sketch:
-  `docs/STACK_ANALYSIS.md` appendix §4.
+- [x] ⭐ **Split `main.py` into a package.** `main.py` is a 10-line shim,
+  the app lives in `wallmotion/`. Zero behavior change — pure move.
+- [x] ⭐ **Platform backend seam** (`wallmotion/platform/`): `WindowsBackend`
+  wraps the GDI/WorkerW code; `get_backend()` returns the Linux session
+  backend on Linux. Interface sketch: `docs/STACK_ANALYSIS.md` appendix §4.
 - [x] **Translate code comments to English** during the split (README stays
   bilingual; code becomes English).
 - [x] **XDG paths helper** (`paths.py`) — `~/.config`, `~/.local/share`,
@@ -23,11 +21,20 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 
 ## P2 — Platforms & core features
 
-- [ ] ⭐ **Linux support** — full research + step-by-step plan in
-  `docs/STACK_ANALYSIS.md` appendix. Summary: delegate rendering to
-  `mpvpaper` (Wayland), `xwinwrap`+`mpv` (X11), `swww`/`feh`/`gsettings`/
-  `plasma-apply-wallpaperimage` for static images. GNOME-Wayland video is a
-  documented gap (needs a shell extension, e.g. Hanabi).
+- [x] ⭐ **Linux support v1 (code)** — backends in
+  `wallmotion/platform/linux.py` (x11/wlroots/kde/gnome), session detection
+  from `$XDG_SESSION_TYPE`/`$XDG_CURRENT_DESKTOP`, static images
+  (`feh`/`swww`/`gsettings`/`plasma-apply-wallpaperimage`), video via
+  `mpvpaper` / `xwinwrap`+`mpv`, live volume/mute/pause over mpv JSON IPC,
+  sysfs battery sensor for autopause, UI wiring with missing-tool messages,
+  30+ headless tests. GNOME-Wayland video stays a documented gap (Hanabi).
+- [ ] **Linux hardware testing matrix** — verify image + video + IPC on
+  real sessions (X11 VM, Sway/Hyprland, KDE-Wayland, GNOME-Wayland image),
+  record results in `docs/` and fix fallout. Code is landed but untested
+  on hardware.
+- [ ] **Linux per-monitor outputs** — map the UI monitor choice to mpvpaper
+  output names / `xwinwrap -g WxH+X+Y` (spec §10; v1 uses all-outputs `*`
+  and fullscreen).
 - [x] **YouTube playlist support.** Currently `noplaylist: True` in
   `DownloadWorker`. Plan: accept playlist URLs, fetch `extract_flat` entries,
   show a picker dialog, download selected item(s). Keep the 500 MB cap and
@@ -72,3 +79,8 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 - [x] CI (ruff + pytest, Windows + Linux), tag-driven release builds
 - [x] Tests for YouTube URL validation and format-selector invariants
 - [x] `main.py` imports cleanly on non-Windows (platform guards)
+- [x] XDG platform paths (`wallmotion/paths.py`), locale JSON files
+  (`locales/cs.json`, `locales/en.json`)
+- [x] Pause/resume rules (fullscreen / battery), YouTube playlist picker,
+  per-monitor selection
+- [x] Branch protection on `main` (no force-push/deletion, CI required)

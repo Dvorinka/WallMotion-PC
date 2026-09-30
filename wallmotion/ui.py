@@ -49,6 +49,8 @@ from wallmotion.i18n import (
     T,
     build_stylesheet,
 )
+from wallmotion.linux_video import LinuxVideoWallpaper
+from wallmotion.platform import get_backend
 from wallmotion.utils import DEBUG_LOG, _asset_path, _quiet_ffmpeg, debug_log
 from wallmotion.video import VideoWallpaperWindow
 from wallmotion.wallpaper import (
@@ -171,10 +173,27 @@ class MainWindow(QMainWindow):
 
         self.video_window = None
         self.selected_path = None
-        self.original_wallpaper = get_current_wallpaper()
+        try:
+            self.original_wallpaper = get_current_wallpaper()
+        except Exception:
+            self.original_wallpaper = ""  # non-Windows: no wallpaper to restore
         self.screen_info = screens.measure_screens()
         self.monitors = screens.get_physical_monitors()
         self.monitor_choice = "all"  # "all" or physical monitor index
+        # Platform backend (Linux: session renderer; None = unsupported).
+        self._is_windows = sys.platform == "win32"
+        self._linux_backend = None
+        if not self._is_windows:
+            try:
+                self._linux_backend = get_backend()
+            except Exception:
+                self._linux_backend = None
+            try:
+                from wallmotion.platform.linux import describe_session
+                debug_log(f"PLATFORM: {describe_session()} "
+                          f"backend={getattr(self._linux_backend, 'name', None)}")
+            except Exception:
+                pass
         self.lang = "cs"
         self.theme = "dark"
         self.yt_worker = None
@@ -691,6 +710,56 @@ class MainWindow(QMainWindow):
         # playlist queue: skip the broken video, keep going
         self._on_queue_item_done()
 
+    def _refresh_linux_backend(self):
+        """(Re-)detect the Linux session backend. None when unsupported."""
+        if self._is_windows:
+            return None
+        if self._linux_backend is None:
+            try:
+                self._linux_backend = get_backend()
+            except Exception:
+                self._linux_backend = None
+        return self._linux_backend
+
+    def _start_linux_video(self, s, pw, ph):
+        """Video wallpaper on Linux via the session backend."""
+        from wallmotion.platform.linux import describe_session
+        backend = self._refresh_linux_backend()
+        if backend is None:
+            self.status_label.setText(
+                s["linux_no_backend"].format(s=describe_session()))
+            return
+        if getattr(backend, "name", "") == "gnome":
+            QMessageBox.warning(
+                self, s["linux_gnome_video_t"], s["linux_gnome_video_m"])
+            self.status_label.setText(s["linux_gnome_video_m"])
+            return
+        self.video_window = LinuxVideoWallpaper(
+            backend, self.selected_path, muted=self.mute_checkbox.isChecked(),
+            volume=self.volume_slider.value() / 100.0,
+            auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
+            auto_pause_battery=self.pause_batt_checkbox.isChecked(),
+        )
+        self.video_window.failed.connect(self._on_video_failed)
+        if self.video_window.start():
+            self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
+            self.tray.showMessage(
+                s["app_name"], s["vid_started_msg"],
+                QSystemTrayIcon.MessageIcon.Information, 3000
+            )
+        else:
+            self.video_window.stop()
+            self.video_window = None
+            try:
+                tools = ", ".join(backend.missing_tools()) or "?"
+            except Exception:
+                tools = "?"
+            self.status_label.setText(s["linux_missing"].format(tools=tools))
+            QMessageBox.warning(
+                self, s["vid_fail_t"],
+                s["linux_missing"].format(tools=tools),
+            )
+
     def open_downloads_folder(self):
         """Open the downloaded videos folder in Explorer."""
         try:
@@ -831,9 +900,29 @@ class MainWindow(QMainWindow):
 
         if ext in IMAGE_EXTS:
             fitted = fit_image_to_screen(self.selected_path, pw, ph)
-            set_static_wallpaper(fitted)
+            if self._is_windows:
+                set_static_wallpaper(fitted)
+            else:
+                from wallmotion.platform.linux import describe_session
+                backend = self._refresh_linux_backend()
+                if backend is None:
+                    self.status_label.setText(
+                        s["linux_no_backend"].format(s=describe_session()))
+                    return
+                if not backend.set_image(fitted):
+                    try:
+                        tools = ", ".join(backend.missing_tools()) or "?"
+                    except Exception:
+                        tools = "?"
+                    self.status_label.setText(
+                        s["linux_missing"].format(tools=tools))
+                    return
             self.status_label.setText(s["img_set"].format(w=pw, h=ph))
         elif ext in VIDEO_EXTS:
+            if not self._is_windows:
+                self._start_linux_video(s, pw, ph)
+                self._save_config()
+                return
             self.video_window = VideoWallpaperWindow(
                 self.selected_path, muted=self.mute_checkbox.isChecked(),
                 volume=self.volume_slider.value() / 100.0,
@@ -881,8 +970,15 @@ class MainWindow(QMainWindow):
         if self.video_window is not None:
             self.video_window.stop()
             self.video_window = None
-        if self.original_wallpaper:
-            set_static_wallpaper(self.original_wallpaper)
+        if self._is_windows:
+            if self.original_wallpaper:
+                set_static_wallpaper(self.original_wallpaper)
+        else:
+            try:
+                if self._linux_backend is not None:
+                    self._linux_backend.stop()
+            except Exception:
+                pass
         self.status_label.setText(self.S()["restored"])
 
     def closeEvent(self, event):

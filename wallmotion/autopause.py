@@ -123,13 +123,19 @@ def is_fullscreen_app_active() -> bool:
 
 def is_on_battery() -> bool:
     """True when running on battery power. False on desktops / unknown."""
-    if sys.platform != "win32":
-        return False
-    try:
-        status = _SystemPowerStatus()
-        ok = ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status))
-        if not ok:
+    if sys.platform == "win32":
+        try:
+            status = _SystemPowerStatus()
+            ok = ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status))
+            if not ok:
+                return False
+            return parse_ac_line_status(status.ACLineStatus)
+        except Exception:
             return False
-        return parse_ac_line_status(status.ACLineStatus)
-    except Exception:
-        return False
+    if sys.platform.startswith("linux"):
+        try:
+            from wallmotion.platform.linux import is_on_battery_linux
+            return is_on_battery_linux()
+        except Exception:
+            return False
+    return False
