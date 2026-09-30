@@ -25,7 +25,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt -r requirements-dev.txt pyinstaller
 
       - name: Headless import smoke test
         run: |
