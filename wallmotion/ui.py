@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
 
         self.video_window = None
         self.mirror_windows = []  # duplicate playback on other monitors
+        self.user_paused = False  # manual Pause button state
         self.selected_path = None
         try:
             self.original_wallpaper = get_current_wallpaper()
@@ -392,6 +393,11 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_wallpaper)
         layout.addWidget(self.stop_btn)
 
+        self.pause_btn = QPushButton()
+        self.pause_btn.setObjectName("secondary")
+        self.pause_btn.clicked.connect(self._toggle_user_pause)
+        layout.addWidget(self.pause_btn)
+
         layout.addStretch()
 
         self.status_label = QLabel()
@@ -465,10 +471,13 @@ class MainWindow(QMainWindow):
             lambda: self._check_updates(force=True))
         self.tray_library_action = QAction("Otevřít knihovnu", self)
         self.tray_library_action.triggered.connect(self.open_library)
+        self.tray_pause_action = QAction("Pozastavit", self)
+        self.tray_pause_action.triggered.connect(self._toggle_user_pause)
         self.tray_quit_action = QAction("Ukončit", self)
         self.tray_quit_action.triggered.connect(self.quit_app)
         menu.addAction(self.tray_show_action)
         menu.addAction(self.tray_library_action)
+        menu.addAction(self.tray_pause_action)
         menu.addAction(self.tray_update_action)
         menu.addAction(self.tray_quit_action)
         self.tray.setContextMenu(menu)
@@ -775,6 +784,7 @@ class MainWindow(QMainWindow):
             self.tray_quit_action.setText(s["quit_tray"])
         except Exception:
             pass
+        self._refresh_pause_ui()
         self._refresh_screen_label()
 
     # -- YouTube ---------------------------------------------------------
@@ -962,14 +972,18 @@ class MainWindow(QMainWindow):
         )
         self.video_window.failed.connect(self._on_video_failed)
         if self.video_window.start():
+            self.user_paused = False
             self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
             self.tray.showMessage(
                 s["app_name"], s["vid_started_msg"],
                 QSystemTrayIcon.MessageIcon.Information, 3000
             )
+            self._refresh_pause_ui()
         else:
             self.video_window.stop()
             self.video_window = None
+            self.user_paused = False
+            self._refresh_pause_ui()
             try:
                 tools = ", ".join(backend.missing_tools()) or "?"
             except Exception:
@@ -1253,6 +1267,8 @@ class MainWindow(QMainWindow):
                 if i == 0:
                     # Primary failed: same fatal path as single-monitor.
                     self.video_window = None
+                    self.user_paused = False
+                    self._refresh_pause_ui()
                     self.status_label.setText(
                         s["vid_fail_m"].format(log=DEBUG_LOG))
                     QMessageBox.warning(
@@ -1262,11 +1278,13 @@ class MainWindow(QMainWindow):
                     return
                 debug_log(f"APPLY: mirror {i} failed to start, primary runs")
             if self.video_window is not None:
+                self.user_paused = False
                 self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
                 self.tray.showMessage(
                     s["app_name"], s["vid_started_msg"],
                     QSystemTrayIcon.MessageIcon.Information, 3000
                 )
+                self._refresh_pause_ui()
         else:
             return
 
@@ -1295,6 +1313,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, s["vid_decode_t"], s["vid_decode_m"])
         else:
             self.status_label.setText(s["vid_fail_m"].format(log=DEBUG_LOG))
+        self.user_paused = False
+        self._refresh_pause_ui()
 
     def _on_mirror_failed(self, reason: str):
         """A mirror window died: drop just it, the primary keeps playing."""
@@ -1311,7 +1331,41 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _toggle_user_pause(self):
+        """Manual Pause/Resume: freeze the frame, keep canvas and config."""
+        try:
+            if self.video_window is None:
+                return
+            target = not self.user_paused
+            self.user_paused = target
+            try:
+                self.video_window.set_user_paused(target)
+                for w in list(self.mirror_windows):
+                    try:
+                        w.set_user_paused(target)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            self._refresh_pause_ui()
+        except Exception as e:
+            debug_log(f"PAUSE exception: {e!r}")
+
+    def _refresh_pause_ui(self):
+        """Pause button + tray texts follow state; disabled without video."""
+        try:
+            s = self.S()
+            running = self.video_window is not None
+            text = s["video_resume"] if self.user_paused else s["video_pause"]
+            self.pause_btn.setText(text)
+            self.pause_btn.setEnabled(running)
+            self.tray_pause_action.setText(text)
+            self.tray_pause_action.setEnabled(running)
+        except Exception:
+            pass
+
     def stop_wallpaper(self):
+        self.user_paused = False
         self._stop_all_video_windows()
         if self._is_windows:
             if self.original_wallpaper:
@@ -1323,6 +1377,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self.status_label.setText(self.S()["restored"])
+        self._refresh_pause_ui()
 
     def closeEvent(self, event):
         s = self.S()

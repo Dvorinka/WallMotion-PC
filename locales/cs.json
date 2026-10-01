@@ -42,6 +42,8 @@
   "update_available": "Je dostupná nová verze {tag}.",
   "update_failed": "Kontrola aktualizací selhala (offline?).",
   "update_uptodate": "Máš aktuální verzi.",
+  "video_pause": "Pozastavit",
+  "video_resume": "Pokračovat",
   "vid_decode_m": "Z videa nepřišel ani jeden snímek (pravděpodobně nepodporovaný kodek, např. AV1/VP9 bez zvuku ve vysokém rozlišení). Zkus jiné video, ideálně H264 mp4 do 1080p.",
   "vid_decode_t": "Video se nepodařilo přehrát",
   "vid_fail_m": "Nepodařilo se vložit video na plochu (WorkerW nenalezeno).\nDetail v souboru {log}",

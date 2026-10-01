@@ -42,6 +42,8 @@
   "update_available": "New version available: {tag}.",
   "update_failed": "Update check failed (offline?).",
   "update_uptodate": "You're up to date.",
+  "video_pause": "Pause",
+  "video_resume": "Resume",
   "vid_decode_m": "No frames arrived from the video (likely an unsupported codec, e.g. AV1/VP9-only high-resolution file). Try a different video, ideally H264 mp4 up to 1080p.",
   "vid_decode_t": "Could not play the video",
   "vid_fail_m": "Could not embed the video into the desktop (WorkerW not found).\nSee {log}",
