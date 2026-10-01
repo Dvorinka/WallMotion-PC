@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
 from PySide6.QtCore import QLoggingCategory, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
+    QColor,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
+    QPainter,
+    QPen,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -236,23 +240,20 @@ class MainWindow(QMainWindow):
         self.screen_label.setObjectName("status")
         layout.addWidget(self.screen_label)
 
-        # -- settings: language + theme -------------------------------------
+        # -- settings: language + theme toggle buttons ----------------------
         settings_row = QHBoxLayout()
         settings_row.setSpacing(8)
-        self.lang_label = QLabel()
-        settings_row.addWidget(self.lang_label)
-        self.lang_combo = QComboBox()
-        for code, name in LANGS.items():
-            self.lang_combo.addItem(name, code)
-        self.lang_combo.currentIndexChanged.connect(self._on_lang_changed)
-        settings_row.addWidget(self.lang_combo, 1)
-        self.theme_label = QLabel()
-        settings_row.addWidget(self.theme_label)
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItem("Tmavý", "dark")
-        self.theme_combo.addItem("Světlý", "light")
-        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        settings_row.addWidget(self.theme_combo, 1)
+        settings_row.addStretch(1)
+        self.lang_button = QPushButton()
+        self.lang_button.setObjectName("secondary")
+        self.lang_button.setFixedWidth(56)
+        self.lang_button.clicked.connect(self._toggle_lang)
+        settings_row.addWidget(self.lang_button)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("secondary")
+        self.theme_button.setFixedSize(48, 34)
+        self.theme_button.clicked.connect(self._toggle_theme)
+        settings_row.addWidget(self.theme_button)
         layout.addLayout(settings_row)
 
         # -- monitor selection ------------------------------------------------
@@ -444,6 +445,50 @@ class MainWindow(QMainWindow):
         )
         self.tray.show()
 
+    def _theme_icon(self, dark: bool) -> QIcon:
+        """Painted toggle icon: sun when dark mode is on, moon when light."""
+        try:
+            size = 22
+            pix = QPixmap(size, size)
+            pix.fill(Qt.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.Antialiasing)
+            color = QColor(T("text"))
+            if dark:
+                p.setBrush(color)
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(7, 7, 8, 8)
+                pen = QPen(color)
+                pen.setWidth(2)
+                pen.setCapStyle(Qt.RoundCap)
+                p.setPen(pen)
+                for deg in range(0, 360, 45):
+                    rad = math.radians(deg)
+                    x1 = 11 + 6 * math.cos(rad)
+                    y1 = 11 + 6 * math.sin(rad)
+                    x2 = 11 + 9 * math.cos(rad)
+                    y2 = 11 + 9 * math.sin(rad)
+                    p.drawLine(int(x1), int(y1), int(x2), int(y2))
+            else:
+                p.setBrush(color)
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(4, 3, 14, 14)
+                p.setCompositionMode(QPainter.CompositionMode_Clear)
+                p.drawEllipse(9, 0, 13, 13)
+            p.end()
+            return QIcon(pix)
+        except Exception:
+            return QIcon()
+
+    def _toggle_theme(self):
+        self.apply_theme("light" if self.theme == "dark" else "dark")
+        self.retranslate()
+
+    def _toggle_lang(self):
+        self.lang = "en" if self.lang == "cs" else "cs"
+        self._save_config()
+        self.retranslate()
+
     def S(self) -> dict:
         return STRINGS.get(self.lang, STRINGS["cs"])
 
@@ -524,16 +569,6 @@ class MainWindow(QMainWindow):
                     self._apply_volume_memory(self.selected_path)
             except Exception:
                 pass
-        # set combo boxes without emitting signals
-        try:
-            self.lang_combo.blockSignals(True)
-            self.lang_combo.setCurrentIndex(list(LANGS).index(self.lang))
-            self.lang_combo.blockSignals(False)
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setCurrentIndex(0 if self.theme == "dark" else 1)
-            self.theme_combo.blockSignals(False)
-        except Exception:
-            pass
         self._restart_rotation_timer()
         self._refresh_rotation_label()
 
@@ -636,30 +671,18 @@ class MainWindow(QMainWindow):
         if save:
             self._save_config()
 
-    def _on_theme_changed(self, _index: int):
-        theme = self.theme_combo.currentData() or "dark"
-        self.apply_theme(theme)
-        self.retranslate()
-
-    def _on_lang_changed(self, _index: int):
-        lang = self.lang_combo.currentData() or "cs"
-        if lang not in STRINGS:
-            lang = "cs"
-        self.lang = lang
-        self._save_config()
-        self.retranslate()
-
     def retranslate(self):
         s = self.S()
         self.subtitle_label.setText(s["subtitle"])
-        self.lang_label.setText(s["lang_label"])
-        self.theme_label.setText(s["theme_label"])
-        # theme combo box texts
+        # Toggle buttons show the *target*: EN while Czech is on, sun
+        # while dark mode is on (click switches to the other one).
         try:
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setItemText(0, s["theme_dark"])
-            self.theme_combo.setItemText(1, s["theme_light"])
-            self.theme_combo.blockSignals(False)
+            target_lang = "en" if self.lang == "cs" else "cs"
+            self.lang_button.setText("EN" if target_lang == "en" else "CZ")
+            self.lang_button.setToolTip(LANGS.get(target_lang, target_lang))
+            self.theme_button.setIcon(self._theme_icon(self.theme == "dark"))
+            self.theme_button.setToolTip(
+                s["theme_light"] if self.theme == "dark" else s["theme_dark"])
         except Exception:
             pass
         self.drop_zone.set_hint(s["drop_hint"])
