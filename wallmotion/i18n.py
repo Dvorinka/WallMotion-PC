@@ -103,12 +103,36 @@ QComboBox {{
     border: 1px solid {t['border']};
     border-radius: 8px;
     padding: 6px 10px;
+    padding-right: 36px;
     font-size: 12px;
+}}
+QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border: none;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background: transparent;
+}}
+QComboBox::down-arrow {{
+    width: 12px;
+    height: 12px;
 }}
 QComboBox QAbstractItemView {{
     background-color: {t['card']};
     color: {t['text']};
     selection-background-color: {ACCENT};
+    selection-color: white;
+    border: 1px solid {t['border']};
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}}
+QComboBox QAbstractItemView::item {{
+    padding: 8px 12px;
+    border-radius: 6px;
+    min-height: 20px;
 }}
 """
 
