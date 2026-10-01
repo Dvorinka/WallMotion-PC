@@ -42,7 +42,15 @@ re-test of a locally rebuilt AppImage with bundled renderers.
   forward over `wallmotion.cli.sock` to the running instance.
 - `--stop` restores the previous wallpaper (fixed build) — confirmed
   against the user's real custom wallpaper, not a default.
-- Video apply on GNOME shows the documented Hanabi notice — by design.
+- Video apply on GNOME offers to install the bundled Hanabi
+  extension zip (`gnome-extensions install --force`), queues it in
+  `enabled-extensions`, and asks for a sign-out/in — verified live:
+  files land in `~/.local/share/gnome-shell/extensions`, the uuid is
+  queued, and its `video-path`/`mute`/`volume` schema keys write
+  through `GSETTINGS_SCHEMA_DIR`. GNOME on Wayland cannot load a new
+  extension into the running session — `ReloadExtension` is gone and
+  `InstallRemoteExtension` 404s because Hanabi is not on
+  extensions.gnome.org.
 - `yt_dlp` and `imageio-ffmpeg` (with bundled ffmpeg) ship inside the
   AppImage — downloads are self-contained.
 - Debug log persists across CLI invocations (fixed build).
@@ -87,7 +95,9 @@ stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, res
 ## Known limitations (unchanged)
 
 - **GNOME Wayland video**: no public shell API for video wallpapers;
-  requires the Hanabi extension. Detected and messaged, not a crash.
+  the app installs the bundled Hanabi zip on demand and drives its
+  `video-path`/`mute`/`volume` keys. First activation needs one
+  sign-out/in — a GNOME platform limit, not a bug.
 - **Wayland fullscreen auto-pause**: no compositor-neutral way to ask
   "is the active window fullscreen". Rule is a no-op on Wayland.
 - **mpvpaper** targets all outputs (`*`) — per-output selection needs
@@ -99,7 +109,7 @@ stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, res
 
 | Session | Image | Video | Tested on hardware? |
 |---|---|---|---|
-| GNOME Wayland | `gsettings` ✓ | Hanabi notice ✓ | yes — this pass |
+| GNOME Wayland | `gsettings` ✓ | Hanabi install + enable + schema writes ✓ (playback needs one relogin — platform limit) | yes — this pass |
 | X11 | `feh` ✓ | `xwinwrap`+`mpv` ✓ | yes — nested `Xephyr :99`, app itself spawned the bundled tools; mpv IPC (play/pause/mute/volume) verified; `--stop` kills the process group |
 | KDE Wayland | `plasma-apply-wallpaperimage` | `mpvpaper` | pending (no KDE session) |
 | Sway/Hyprland/wlroots | `swww` ✓ | `mpvpaper` ✓ | yes — nested `sway` (WLR_BACKENDS=wayland): `swww img`/`query` round-trips, `mpvpaper '*'` plays all outputs, mute/unmute/pause via app IPC socket; `--stop` kills mpvpaper and restores the image snapshot |

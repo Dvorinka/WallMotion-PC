@@ -869,10 +869,8 @@ class MainWindow(QMainWindow):
                 s["linux_no_backend"].format(s=describe_session()))
             return
         if getattr(backend, "name", "") == "gnome":
-            QMessageBox.warning(
-                self, s["linux_gnome_video_t"], s["linux_gnome_video_m"])
-            self.status_label.setText(s["linux_gnome_video_m"])
-            return
+            if not self._ensure_hanabi(s):
+                return
         self.video_window = LinuxVideoWallpaper(
             backend, self.selected_path, muted=self.mute_checkbox.isChecked(),
             volume=self.volume_slider.value() / 100.0,
@@ -899,6 +897,40 @@ class MainWindow(QMainWindow):
                 self, s["vid_fail_t"],
                 s["linux_missing"].format(tools=tools),
             )
+
+    def _ensure_hanabi(self, s) -> bool:
+        """GNOME video needs the Hanabi extension. Install/enable it via
+        GNOME's own mechanisms; returns True when usable right now."""
+        from wallmotion.platform.linux import hanabi_enable, hanabi_install, hanabi_state
+        state = hanabi_state()
+        if state == "missing":
+            answer = QMessageBox.question(
+                self, s["linux_hanabi_install_t"], s["linux_gnome_video_m"])
+            if answer != QMessageBox.StandardButton.Yes:
+                self.status_label.setText(s["linux_gnome_video_t"])
+                return False
+            ok, res = hanabi_install()
+            state = hanabi_state()
+            if state == "missing":
+                self.status_label.setText(
+                    s["linux_hanabi_failed_m"].format(err=res.strip() or "?"))
+                return False
+        if state == "installed":
+            answer = QMessageBox.question(
+                self, s["linux_hanabi_enable_t"], s["linux_hanabi_enable_m"])
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+            hanabi_enable()
+            # enable() may only have queued the extension for next
+            # login - trust the shell's own view of what is live.
+            state = hanabi_state()
+        if state != "enabled":
+            # Wayland: a freshly installed extension loads on next login.
+            QMessageBox.information(
+                self, s["linux_gnome_video_t"], s["linux_hanabi_relogin_m"])
+            self.status_label.setText(s["linux_hanabi_relogin_m"])
+            return False
+        return True
 
     def _rotation_interval_seconds(self) -> int:
         try:

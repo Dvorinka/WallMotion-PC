@@ -270,6 +270,7 @@ class TestSessionTool:
         calls = []
         monkeypatch.setattr(
             L, "session_tool", lambda name: f"/sys/bin/{name}")
+        monkeypatch.setattr(L, "hanabi_state", lambda: "missing")
         monkeypatch.setattr(
             L, "run_command",
             lambda cmd, timeout=15: calls.append(list(cmd))
@@ -313,6 +314,170 @@ class TestIpcSocket:
         assert not stale.exists()
 
 
+class TestHanabi:
+    UUID = L.HANABI_UUID
+
+    def _fake_gext(self, installed, enabled, monkeypatch):
+        installed_list = f"foo@bar\n{self.UUID}\nbaz@qux\n" if installed \
+            else "foo@bar\nbaz@qux\n"
+        enabled_list = f"{self.UUID}\n" if enabled else ""
+
+        def fake_run(cmd, timeout=15):
+            if "--enabled" in cmd:
+                return True, enabled_list, ""
+            return True, installed_list, ""
+
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(L, "run_command", fake_run)
+        monkeypatch.setattr(L, "_hanabi_dir",
+                            lambda: "/nonexistent-hanabi-dir")
+
+    def test_state_missing(self, monkeypatch):
+        self._fake_gext(False, False, monkeypatch)
+        assert L.hanabi_state() == "missing"
+
+    def test_state_installed(self, monkeypatch):
+        self._fake_gext(True, False, monkeypatch)
+        assert L.hanabi_state() == "installed"
+
+    def test_state_enabled(self, monkeypatch):
+        self._fake_gext(True, True, monkeypatch)
+        assert L.hanabi_state() == "enabled"
+
+    def test_state_unknown_without_tool(self, monkeypatch):
+        monkeypatch.setattr(L, "session_tool", lambda name: None)
+        assert L.hanabi_state() == "unknown"
+
+    def test_state_dir_fallback(self, monkeypatch, tmp_path):
+        # freshly installed: not in `list` yet, but files are on disk
+        self._fake_gext(False, False, monkeypatch)
+        monkeypatch.setattr(L, "_hanabi_dir", lambda: str(tmp_path))
+        assert L.hanabi_state() == "installed"
+
+    def test_state_exact_match_only(self, monkeypatch):
+        # a uuid sharing our prefix must not count as installed
+        def fake_run(cmd, timeout=15):
+            return True, f"{self.UUID}-extra\n", ""
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(L, "run_command", fake_run)
+        monkeypatch.setattr(L, "_hanabi_dir",
+                            lambda: "/nonexistent-hanabi-dir")
+        assert L.hanabi_state() == "missing"
+
+    def test_install_from_bundled_zip(self, monkeypatch, tmp_path):
+        calls = []
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        import wallmotion.utils
+        monkeypatch.setattr(wallmotion.utils, "_asset_path",
+                            lambda name: str(tmp_path / name))
+        (tmp_path / L.HANABI_ZIP).write_bytes(b"PK")
+        ok, _ = L.hanabi_install()
+        assert ok
+        assert calls[0][:2] == ["/usr/bin/gnome-extensions", "install"]
+        assert "--force" in calls[0]
+
+    def test_install_missing_zip(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(L, "session_tool", lambda name: None)
+        import wallmotion.utils
+        monkeypatch.setattr(wallmotion.utils, "_asset_path",
+                            lambda name: str(tmp_path / name))
+        ok, _ = L.hanabi_install()
+        assert not ok
+
+    def test_enable_queues_in_enabled_extensions(self, monkeypatch):
+        calls = []
+
+        def fake_run(cmd, timeout=15):
+            calls.append(cmd)
+            if cmd[:3] == ["/usr/bin/gnome-extensions", "enable",
+                           self.UUID]:
+                return False, "", "does not exist"
+            if cmd[1] == "get":
+                return True, "['foo@bar']\n", ""
+            return True, "", ""
+
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(L, "run_command", fake_run)
+        assert L.hanabi_enable() is True
+        set_cmd = [c for c in calls
+                   if c[:2] == ["/usr/bin/gsettings", "set"]]
+        assert set_cmd
+        assert self.UUID in set_cmd[0][-1]
+
+    def test_enable_live(self, monkeypatch):
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command", lambda cmd, timeout=15: (True, "", ""))
+        assert L.hanabi_enable() is True
+
+    def test_video_commands(self, monkeypatch):
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        cmds = L.hanabi_video_commands("/v.mp4", True, 0.5)
+        assert cmds[0][-4:] == ["set", L.HANABI_SCHEMA, "mute", "true"]
+        assert cmds[1][-3:] == [L.HANABI_SCHEMA, "volume", "50"]
+        assert cmds[-1][-2:] == ["video-path", "/v.mp4"]
+        assert all("GSETTINGS_SCHEMA_DIR=" in c[1] for c in cmds)
+
+    def test_gnome_video_refused_when_not_enabled(self, monkeypatch):
+        monkeypatch.setattr(L, "hanabi_state", lambda: "missing")
+        assert L.GnomeBackend().set_video("/v.mp4", True, 0.3) is False
+
+    def test_gnome_video_writes_schema(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(L, "hanabi_state", lambda: "enabled")
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        assert L.GnomeBackend().set_video("/v.mp4", True, 0.5) is True
+        schemas = [c[4] for c in calls]
+        assert all(s == L.HANABI_SCHEMA for s in schemas)
+        assert calls[-1][-2:] == ["video-path", "/v.mp4"]
+
+    def test_gnome_stop_clears_video_path(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(L, "hanabi_state", lambda: "enabled")
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        L.GnomeBackend().stop()
+        assert ["set", L.HANABI_SCHEMA, "video-path", ""] \
+            in [c[-4:] for c in calls]
+
+    def test_gnome_pause_restores_path(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(L, "hanabi_state", lambda: "enabled")
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+
+        def fake_run(cmd, timeout=15):
+            calls.append(cmd)
+            if cmd[3] == "get":
+                return True, "'/v.mp4'\n", ""
+            return True, "", ""
+
+        monkeypatch.setattr(L, "run_command", fake_run)
+        b = L.GnomeBackend()
+        b.set_paused(True)
+        tails = [c[-4:] for c in calls]
+        assert ["set", L.HANABI_SCHEMA, "video-path", ""] in tails
+        b.set_paused(False)
+        tails = [c[-4:] for c in calls]
+        assert ["set", L.HANABI_SCHEMA, "video-path", "/v.mp4"] in tails
+
+
 class TestRestore:
     def test_gnome_snapshot_and_restore(self, monkeypatch):
         calls = []
@@ -325,6 +490,7 @@ class TestRestore:
 
         monkeypatch.setattr(L, "run_command", fake_run)
         monkeypatch.setattr(L, "_which", lambda name: "/usr/bin/" + name)
+        monkeypatch.setattr(L, "hanabi_state", lambda: "missing")
         backend = L.GnomeBackend()
         assert backend.set_image("/new.png") is True
         backend.restore()

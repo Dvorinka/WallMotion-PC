@@ -19,6 +19,13 @@ Full report: [docs/LINUX_TESTING.md](docs/LINUX_TESTING.md).
 - `stop` restores the previous Linux wallpaper (GNOME `gsettings`
   snapshot, X11 `~/.fehbg` snapshot, wlroots `swww query` snapshot).
 - Fullscreen auto-pause probe on X11 (`xprop`/`xwininfo`/`xrandr`).
+- GNOME Wayland video wallpaper via the Hanabi extension: the app
+  offers to install the upstream-built zip bundled in `assets/`
+  (GPL-3.0, license text shipped alongside), queues it in
+  `enabled-extensions`, and drives its `video-path`/`mute`/`volume`
+  keys — pause temporarily clears `video-path`. First activation
+  needs one sign-out/in (GNOME Wayland cannot load a new extension
+  into the running session).
 - `assets/VERSION` version file written by CI; `--version` reports the
   release tag instead of a static dev string.
 

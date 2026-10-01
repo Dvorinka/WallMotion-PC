@@ -74,7 +74,7 @@ detected from `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
 |---|---|---|
 | X11 | `feh --bg-fill` | `xwinwrap` + `mpv` fullscreen |
 | Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (all outputs) |
-| Wayland + GNOME | `gsettings` | not supported (needs the Hanabi Shell extension) |
+| Wayland + GNOME | `gsettings` | via the Hanabi extension — the app offers to install it (bundled zip); it activates after sign-out/sign-in |
 
 The AppImage bundles `feh`, `mpv`, `xwinwrap`, `mpvpaper`, `swww` and
 `swww-daemon` — no manual installs on any supported session. The only
@@ -184,7 +184,7 @@ detekované z `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
 |---|---|---|
 | X11 | `feh --bg-fill` | `xwinwrap` + `mpv` fullscreen |
 | Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (všechny výstupy) |
-| Wayland + GNOME | `gsettings` | nepodporováno (chce to rozšíření Hanabi) |
+| Wayland + GNOME | `gsettings` | přes rozšíření Hanabi — aplikace nabídne instalaci (přibalený zip); aktivuje se po odhlášení a přihlášení |
 
 AppImage má v sobě `feh`, `mpv`, `xwinwrap`, `mpvpaper`, `swww` a
 `swww-daemon` — žádné ruční instalace na žádné podporované session.
