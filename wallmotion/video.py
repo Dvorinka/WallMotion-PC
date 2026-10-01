@@ -18,6 +18,7 @@ from wallmotion.autopause import (
     is_on_battery,
     should_pause,
 )
+from wallmotion.frames import ensure_packed_rgb32
 from wallmotion.utils import _quiet_ffmpeg, debug_log
 from wallmotion.win32 import (
     _BLACKNESS,
@@ -462,8 +463,7 @@ class VideoWallpaperWindow(QWidget):
             if img.isNull():
                 debug_log("FRAME: toImage null")
                 return
-            if img.format() != QImage.Format.Format_RGB32:
-                img = img.convertToFormat(QImage.Format.Format_RGB32)
+            img = ensure_packed_rgb32(img)
             sw, sh = img.width(), img.height()
             if sw <= 0 or sh <= 0 or self._dw <= 0 or self._dh <= 0:
                 debug_log(f"FRAME: spatny rozmer src={sw}x{sh} dst={self._dw}x{self._dh}")

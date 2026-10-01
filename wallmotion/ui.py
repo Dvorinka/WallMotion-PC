@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
         self.resize(430, 760)
 
         self.video_window = None
+        self.mirror_windows = []  # duplicate playback on other monitors
         self.selected_path = None
         try:
             self.original_wallpaper = get_current_wallpaper()
@@ -653,12 +654,43 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _stop_all_video_windows(self):
+        """Stop the primary window and every mirror, silently."""
+        try:
+            if self.video_window is not None:
+                self.video_window.stop()
+        except Exception:
+            pass
+        self.video_window = None
+        try:
+            for w in self.mirror_windows:
+                try:
+                    w.stop()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        self.mirror_windows = []
+
+    def _each_video_window(self):
+        """Primary window first, then mirrors (for mute/volume/rules)."""
+        try:
+            if self.video_window is not None:
+                yield self.video_window
+            yield from list(self.mirror_windows)
+        except Exception:
+            return
+
     def _on_mute_toggled(self, checked: bool):
         """F4: save the option and immediately toggle sound of the running wallpaper."""
         self._save_config()
         try:
-            if self.video_window is not None:
-                self.video_window.set_muted(bool(checked))
+            for w in self._each_video_window():
+                # Mirrors stay muted so two monitors never echo.
+                if w is self.video_window:
+                    w.set_muted(bool(checked))
+                else:
+                    w.set_muted(True)
         except Exception:
             pass
 
@@ -666,8 +698,8 @@ class MainWindow(QMainWindow):
         """Save rules and apply them to the running wallpaper immediately."""
         self._save_config()
         try:
-            if self.video_window is not None:
-                self.video_window.set_auto_pause(
+            for w in self._each_video_window():
+                w.set_auto_pause(
                     self.pause_fs_checkbox.isChecked(),
                     self.pause_batt_checkbox.isChecked(),
                 )
@@ -683,7 +715,6 @@ class MainWindow(QMainWindow):
                 self.video_window.set_volume(float(value) / 100.0)
         except Exception:
             pass
-
     # -- theme + language ---------------------------------------------------------
     def apply_theme(self, theme: str, save: bool = True):
         if theme not in THEMES:
@@ -1150,9 +1181,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, s["warn_nofile_t"], s["warn_nofile_m"])
             return
 
-        if self.video_window is not None:
-            self.video_window.stop()
-            self.video_window = None
+        self._stop_all_video_windows()
 
         ext = os.path.splitext(self.selected_path)[1].lower()
 
@@ -1193,29 +1222,51 @@ class MainWindow(QMainWindow):
                 self._start_linux_video(s, pw, ph, monitor=mon)
                 self._save_config()
                 return
-            self.video_window = VideoWallpaperWindow(
-                self.selected_path, muted=self.mute_checkbox.isChecked(),
-                volume=self.volume_slider.value() / 100.0,
-                auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
-                auto_pause_battery=self.pause_batt_checkbox.isChecked(),
-                monitor=mon,
-            )
-            self.video_window.failed.connect(self._on_video_failed)
-            if self.video_window.start():
+            # "All monitors" on 2+ screens: same video on each screen
+            # (first window carries audio, mirrors stay muted).
+            targets = screens.duplicate_targets(
+                self.monitor_choice, self.monitors)
+            started = 0
+            for i, target in enumerate(targets):
+                window = VideoWallpaperWindow(
+                    self.selected_path,
+                    muted=self.mute_checkbox.isChecked() if i == 0 else True,
+                    volume=self.volume_slider.value() / 100.0,
+                    auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
+                    auto_pause_battery=self.pause_batt_checkbox.isChecked(),
+                    monitor=target,
+                )
+                if i == 0:
+                    window.failed.connect(self._on_video_failed)
+                    self.video_window = window
+                else:
+                    window.failed.connect(self._on_mirror_failed)
+                if window.start():
+                    started += 1
+                    if i > 0:
+                        self.mirror_windows.append(window)
+                    continue
+                try:
+                    window.stop()
+                except Exception:
+                    pass
+                if i == 0:
+                    # Primary failed: same fatal path as single-monitor.
+                    self.video_window = None
+                    self.status_label.setText(
+                        s["vid_fail_m"].format(log=DEBUG_LOG))
+                    QMessageBox.warning(
+                        self, s["vid_fail_t"],
+                        s["vid_fail_m"].format(log=DEBUG_LOG),
+                    )
+                    return
+                debug_log(f"APPLY: mirror {i} failed to start, primary runs")
+            if self.video_window is not None:
                 self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
                 self.tray.showMessage(
                     s["app_name"], s["vid_started_msg"],
                     QSystemTrayIcon.MessageIcon.Information, 3000
                 )
-            else:
-                self.video_window.stop()
-                self.video_window = None
-                self.status_label.setText(s["vid_fail_m"].format(log=DEBUG_LOG))
-                QMessageBox.warning(
-                    self, s["vid_fail_t"],
-                    s["vid_fail_m"].format(log=DEBUG_LOG),
-                )
-                return
         else:
             return
 
@@ -1230,16 +1281,38 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self.video_window = None
+        try:
+            for w in self.mirror_windows:
+                try:
+                    w.stop()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        self.mirror_windows = []
         if reason == "decode":
             self.status_label.setText(s["vid_decode_m"])
             QMessageBox.warning(self, s["vid_decode_t"], s["vid_decode_m"])
         else:
             self.status_label.setText(s["vid_fail_m"].format(log=DEBUG_LOG))
 
+    def _on_mirror_failed(self, reason: str):
+        """A mirror window died: drop just it, the primary keeps playing."""
+        debug_log(f"MIRROR FAILED: {reason}")
+        try:
+            sender = self.sender()
+            if sender is not None:
+                try:
+                    sender.stop()
+                except Exception:
+                    pass
+                self.mirror_windows = [
+                    w for w in self.mirror_windows if w is not sender]
+        except Exception:
+            pass
+
     def stop_wallpaper(self):
-        if self.video_window is not None:
-            self.video_window.stop()
-            self.video_window = None
+        self._stop_all_video_windows()
         if self._is_windows:
             if self.original_wallpaper:
                 set_static_wallpaper(self.original_wallpaper)
@@ -1341,8 +1414,7 @@ class MainWindow(QMainWindow):
                 self.web_server.stop()
         except Exception:
             pass
-        if self.video_window is not None:
-            self.video_window.stop()
+        self._stop_all_video_windows()
         QApplication.quit()
 
     def start_web_library(self) -> str | None:

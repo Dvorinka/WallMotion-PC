@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Duplicate video wallpaper: "All monitors" on 2+ screens plays the
+  same video fullscreen on each screen (audio from the primary,
+  mirrors muted).
+
+### Fixed
+- Frame stride guard: decoder frames with padded scanlines are
+  repacked before GDI painting (used to paint sheared bands).
+
 ## [1.0.8] - 2026-10-01
 
 ### Added
