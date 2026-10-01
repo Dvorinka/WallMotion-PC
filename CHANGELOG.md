@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-01
+
+Linux support v1, CLI, AppImage packaging and all P1/P2 features below.
+
 ### Added
 - Open-source project files: MIT license, contributing guide, code of
   conduct, security policy, issue/PR templates, CI and release workflows.
@@ -64,5 +68,6 @@ First stable release.
   debug log at `%TEMP%\live_wallpaper_debug.log`.
 - Standalone `WallMotion.exe` (PyInstaller, ~65 MB).
 
-[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.5
 [1.0.0]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.0
