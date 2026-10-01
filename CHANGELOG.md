@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-01
+
 ### Changed
 - Language and theme dropdowns replaced by toggle buttons (EN/CZ
   and painted sun/moon icon).
@@ -72,6 +74,7 @@ First stable release.
   debug log at `%TEMP%\live_wallpaper_debug.log`.
 - Standalone `WallMotion.exe` (PyInstaller, ~65 MB).
 
-[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.5
 [1.0.0]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.0
