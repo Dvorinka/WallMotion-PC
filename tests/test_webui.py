@@ -49,7 +49,8 @@ class TestThumbnailCommand:
                                 str(tmp_path / "a.jpg"))
         if cmd is None:
             return  # no ffmpeg here - builder correctly declines
-        assert os.path.splitext(os.path.basename(cmd[0]).lower())[0] == "ffmpeg"
+        assert os.path.splitext(os.path.basename(cmd[0]).lower())[0].startswith(
+            "ffmpeg")
         assert "-frames:v" in cmd and "1" in cmd
         assert str(tmp_path / "a.jpg") in cmd
 

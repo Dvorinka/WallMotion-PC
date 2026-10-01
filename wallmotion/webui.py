@@ -18,7 +18,7 @@ import threading
 import urllib.parse
 
 from wallmotion.paths import app_dirs
-from wallmotion.wallpaper import IMAGE_EXTS, VIDEO_EXTS
+from wallmotion.utils import IMAGE_EXTS, VIDEO_EXTS
 
 DEFAULT_PORT = 8765
 THUMB_SECONDS = 1

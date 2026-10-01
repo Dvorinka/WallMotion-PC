@@ -9,8 +9,10 @@ import tempfile
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
-VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm"}
+from wallmotion.utils import IMAGE_EXTS, VIDEO_EXTS
+
+__all__ = ["IMAGE_EXTS", "VIDEO_EXTS", "set_static_wallpaper",
+           "get_current_wallpaper", "fit_image_to_screen"]
 
 
 def set_static_wallpaper(image_path: str) -> None:
