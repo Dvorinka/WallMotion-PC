@@ -76,17 +76,25 @@ detected from `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
 | Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (all outputs) |
 | Wayland + GNOME | `gsettings` | not supported (needs the Hanabi Shell extension) |
 
-Install what your session needs, e.g. `sudo apt install feh mpv`
-(X11), or `mpvpaper` / `swww` from your distro repos. The AppImage
-needs host Mesa/GL libraries (`libgl1 libegl1` — preinstalled on
-practically every desktop distro). Missing tools
-are reported in the status line instead of crashing. Volume, mute and
-pause go through mpv JSON IPC; battery auto-pause reads
-`/sys/class/power_supply`.
+The AppImage bundles `feh`, `mpv`, `xwinwrap`, `mpvpaper`, `swww` and
+`swww-daemon` — no manual installs on any supported session. The only
+tools taken from the system are the desktop's own (`gsettings`,
+`plasma-apply-wallpaperimage`). Host Mesa/GL is still needed
+(`libgl1 libegl1` — preinstalled on practically every desktop distro).
+Running from source instead? Install the renderers via your package
+manager or drop them into `~/.local/share/wallmotion/bin` — bundled
+and drop-in tools are always preferred over `$PATH`.
 
-Status: implemented but not yet tested on real hardware — see
-[TODO.md](TODO.md). Reports welcome (attach
-`~/.local/state/wallmotion/debug.log`).
+Volume, mute and pause go through mpv JSON IPC; battery auto-pause
+reads `/sys/class/power_supply`; fullscreen auto-pause probes the
+active window on X11 via `xprop`/`xwininfo`/`xrandr` (Wayland has no
+compositor-neutral equivalent — the rule is a no-op there). Stop
+restores the previous wallpaper on GNOME (`gsettings`), X11
+(`~/.fehbg`) and wlroots (`swww query`).
+
+Status: verified on GNOME Wayland (Ubuntu 26.04) — see
+[docs/LINUX_TESTING.md](docs/LINUX_TESTING.md). Reports for the other
+sessions welcome (attach `~/.local/state/wallmotion/debug.log`).
 
 ### Known limitations
 
@@ -178,14 +186,24 @@ detekované z `$XDG_SESSION_TYPE` / `$XDG_CURRENT_DESKTOP`:
 | Wayland + KDE / sway / Hyprland / wlroots | `plasma-apply-wallpaperimage` / `swww` | `mpvpaper` (všechny výstupy) |
 | Wayland + GNOME | `gsettings` | nepodporováno (chce to rozšíření Hanabi) |
 
-Nainstaluj, co tvoje session potřebuje, např. `sudo apt install feh mpv`
-(X11), nebo `mpvpaper` / `swww` z repositářů distra. Chybějící nástroje
-appka nahlásí ve stavovém řádku, nespadne. Hlasitost, ztlumení a pauza
-jdou přes mpv JSON IPC; pauza na baterii čte `/sys/class/power_supply`.
+AppImage má v sobě `feh`, `mpv`, `xwinwrap`, `mpvpaper`, `swww` a
+`swww-daemon` — žádné ruční instalace na žádné podporované session.
+Ze systému se berou jen nástroje samotného desktopu (`gsettings`,
+`plasma-apply-wallpaperimage`). Pořád je potřeba host Mesa/GL
+(`libgl1 libegl1` — předinstalované prakticky všude). Při běhu ze
+zdrojáku nástroje nainstaluj přes balíčkovací systém, nebo je hoď do
+`~/.local/share/wallmotion/bin` — přibalené a doplňkové nástroje mají
+přednost před `$PATH`.
 
-Stav: naimplementováno, ale neotestováno na reálném hardwaru — viz
-[TODO.md](TODO.md). Hlas chyby s logem
-`~/.local/state/wallmotion/debug.log`.
+Hlasitost, ztlumení a pauza jdou přes mpv JSON IPC; pauza na baterii
+čte `/sys/class/power_supply`; pauza na fullscreen na X11 zjišťuje
+aktivní okno přes `xprop`/`xwininfo`/`xrandr` (Wayland nemá obdobný
+protokol — tam je pravidlo no-op). Stop vrátí předchozí tapetu na
+GNOME (`gsettings`), X11 (`~/.fehbg`) a wlroots (`swww query`).
+
+Stav: ověřeno na GNOME Wayland (Ubuntu 26.04) — viz
+[docs/LINUX_TESTING.md](docs/LINUX_TESTING.md). Hlášení z ostatních
+session vítána (přilož `~/.local/state/wallmotion/debug.log`).
 
 ### Známá omezení
 

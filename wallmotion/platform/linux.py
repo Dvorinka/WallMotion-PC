@@ -20,6 +20,19 @@ import sys
 import tempfile
 import time
 
+
+def debug_log(msg: str) -> None:
+    """wallmotion.utils.debug_log without a hard dependency cycle.
+
+    utils already guards all failures; a lazy import keeps this module
+    Qt-free and importable on its own.
+    """
+    try:
+        from wallmotion.utils import debug_log as _log
+        _log(msg)
+    except Exception:
+        pass
+
 # Wayland compositors we drive with mpvpaper/swww.
 WLROOTS_DESKTOPS = frozenset({
     "sway", "hyprland", "wlroots", "wayfire", "river", "dwl",
@@ -27,6 +40,72 @@ WLROOTS_DESKTOPS = frozenset({
 })
 
 MPV_IPC_SOCKET_NAME = "wallmotion-mpv.sock"
+
+
+def bundled_bin_dirs() -> list:
+    """Directories that may contain WallMotion-bundled renderer tools.
+
+    Two sources, both optional:
+    - the AppImage: PyInstaller onefile unpacks next to itself, so
+      dirname(sys.executable) inside a running AppImage is
+      $APPDIR/usr/bin where CI deposits mpv/feh/xwinwrap/swww/mpvpaper;
+    - ~/.local/share/wallmotion/bin: user-level drop-in for tools that
+      are not bundled or were installed by the app itself.
+    """
+    dirs = []
+    try:
+        if getattr(sys, "frozen", False):
+            dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+    try:
+        data_home = os.environ.get(
+            "XDG_DATA_HOME", os.path.join(os.path.expanduser("~"),
+                                          ".local", "share"))
+        dirs.append(os.path.join(data_home, "wallmotion", "bin"))
+    except Exception:
+        pass
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def tool_path() -> str:
+    """PATH string with bundled dirs prepended (for shutil.which)."""
+    return os.pathsep.join(bundled_bin_dirs() +
+                           [os.environ.get("PATH", "") or os.defpath])
+
+
+def tool_env() -> dict:
+    """os.environ copy with bundled dirs prepended to PATH.
+
+    Child processes of our tools do their own PATH lookups (xwinwrap
+    execs `mpv`), so the spawned environment must carry the override -
+    shutil.which(name, path=...) alone does not reach grandchildren.
+    """
+    env = dict(os.environ)
+    env["PATH"] = tool_path()
+    return env
+
+
+# Canonical binary dirs, searched before PATH for session-integrated
+# tools. User-owned prefixes (Linuxbrew, Conda, ~/.local/bin scripts)
+# can shadow system tools with incompatible builds - observed on
+# Ubuntu: brew's `gsettings` uses the keyfile backend, so every
+# `gsettings set` vanished into ~/.config/glib-2.0/settings/keyfile
+# and the desktop wallpaper never changed. /usr/bin wins; PATH remains
+# the fallback for systems without these dirs (NixOS etc.).
+SYSTEM_BIN_DIRS = ("/usr/bin", "/bin", "/usr/local/bin")
+
+
+def session_tool(name: str) -> str | None:
+    """Resolved path for a tool that must talk to the real user
+    session, or None. Renderers stay bundled-first (that is the point
+    of bundling them); gsettings/dconf/KDE/X11 helpers must be the
+    distro's binaries or they silently target the wrong store."""
+    for d in SYSTEM_BIN_DIRS:
+        p = os.path.join(d, name)
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return _which(name)
 
 
 def detect_session(env=None) -> dict:
@@ -76,7 +155,7 @@ def candidate_backends(info: dict) -> list:
 
 def _which(name: str) -> str | None:
     try:
-        return shutil.which(name)
+        return shutil.which(name, path=tool_path())
     except Exception:
         return None
 
@@ -94,6 +173,7 @@ def run_command(cmd: list, timeout: int = 15) -> tuple:
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
+            env=tool_env(),
         )
         return (proc.returncode == 0, proc.stdout or "", proc.stderr or "")
     except Exception as e:
@@ -110,24 +190,30 @@ def swww_command(path: str) -> list:
     return ["swww", "img", "--resize", "crop", path]
 
 
-def gsettings_commands(path: str) -> list:
+def gsettings_commands(path: str, exe: str = "gsettings") -> list:
     uri = file_uri(path)
-    base = ["gsettings", "set", "org.gnome.desktop.background"]
+    base = [exe, "set", "org.gnome.desktop.background"]
     return [base + ["picture-uri", uri], base + ["picture-uri-dark", uri]]
 
 
-def plasma_command(path: str) -> list:
-    return ["plasma-apply-wallpaperimage", path]
+def plasma_command(path: str, exe: str = "plasma-apply-wallpaperimage") -> list:
+    return [exe, path]
 
 
 def mpv_options(muted: bool, volume: float) -> str:
-    """mpv options forwarded by mpvpaper -o (and used for plain mpv)."""
+    """mpv options forwarded by mpvpaper -o (and used for plain mpv).
+
+    Muted start must use `mute=yes`, not `no-audio`: `no-audio` never
+    opens an audio stream, so a later `set_property mute no` over JSON
+    IPC has nothing to unmute. `mute=yes` keeps the stream and is
+    reversible at runtime.
+    """
     try:
         vol = max(0, min(100, int(round(float(volume) * 100))))
     except Exception:
         vol = 30
     if muted:
-        return "loop-file=inf no-audio"
+        return f"loop-file=inf mute=yes volume={vol}"
     return f"loop-file=inf volume={vol} mute=no"
 
 
@@ -213,7 +299,7 @@ def ensure_swww_daemon() -> bool:
     try:
         subprocess.Popen(["swww-daemon"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+                         start_new_session=True, env=tool_env())
     except Exception:
         return False
     for _ in range(10):
@@ -280,12 +366,16 @@ class LinuxProcessBackend:
 
     name = "linux-base"
     required_tools: tuple = ()
+    # Tools that must be the real system binaries (session store /
+    # compositor helpers) - resolved via session_tool, not bare PATH.
+    session_tools: tuple = ()
 
     def __init__(self):
         self._proc = None
 
     def missing_tools(self) -> list:
-        return [t for t in self.required_tools if not _which(t)]
+        return ([t for t in self.required_tools if not _which(t)]
+                + [t for t in self.session_tools if not session_tool(t)])
 
     def available(self) -> bool:
         return not self.missing_tools()
@@ -295,7 +385,7 @@ class LinuxProcessBackend:
         try:
             self._proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True,
+                start_new_session=True, env=tool_env(),
             )
             return True
         except Exception:
@@ -327,6 +417,14 @@ class LinuxProcessBackend:
         """Pause/resume playback via mpv IPC (autopause rules)."""
         mpv_ipc_set(ipc_socket_path(), "pause", bool(paused))
 
+    def restore(self) -> None:
+        """Restore the wallpaper the user had before WallMotion.
+
+        Default no-op: backends that can snapshot their desktop's image
+        state override this (gnome via gsettings, x11 via ~/.fehbg,
+        wlroots via `swww query`).
+        """
+
 
 class X11Backend(LinuxProcessBackend):
     """X11: feh for images, fullscreen xwinwrap+mpv for video."""
@@ -334,11 +432,50 @@ class X11Backend(LinuxProcessBackend):
     name = "x11"
     required_tools = ("feh", "xwinwrap", "mpv")
 
+    def __init__(self):
+        super().__init__()
+        # None = not snapshotted yet; False = no previous wallpaper;
+        # bytes = content of the previous ~/.fehbg restore script.
+        self._fehbg_backup: bytes | None = None
+        self._fehbg_seen: bool | None = None
+
+    @staticmethod
+    def _fehbg_path() -> str:
+        return os.path.join(os.path.expanduser("~"), ".fehbg")
+
+    def _snapshot_fehbg(self) -> None:
+        """Save ~/.fehbg once, before our first `feh --bg-fill` rewrites it."""
+        if self._fehbg_seen is not None:
+            return
+        try:
+            with open(self._fehbg_path(), "rb") as f:
+                self._fehbg_backup = f.read()
+            self._fehbg_seen = True
+        except Exception:
+            self._fehbg_backup = None
+            self._fehbg_seen = False
+
     def set_image(self, path: str) -> bool:
         if not _which("feh"):
             return False
+        self._snapshot_fehbg()
         ok, _out, _err = run_command(feh_command(path))
         return ok
+
+    def restore(self) -> None:
+        """Re-run the previous ~/.fehbg script (it re-applies the old
+        wallpaper). No previous state -> leave the current image."""
+        if not self._fehbg_seen or not self._fehbg_backup:
+            debug_log("RESTORE(x11): no captured wallpaper state")
+            return
+        try:
+            path = self._fehbg_path()
+            with open(path, "wb") as f:
+                f.write(self._fehbg_backup)
+            os.chmod(path, 0o755)
+            run_command(["/bin/sh", path])
+        except Exception:
+            pass
 
     def set_video(self, path: str, muted: bool, volume: float,
                   geometry: str | None = None) -> bool:
@@ -365,13 +502,46 @@ class WlrootsBackend(LinuxProcessBackend):
     name = "wlroots"
     required_tools = ("swww", "mpvpaper")
 
+    def __init__(self):
+        super().__init__()
+        self._swww_seen: bool | None = None
+        self._swww_backup: str | None = None
+
+    def _snapshot_swww(self) -> None:
+        """Remember the currently displayed image from `swww query`.
+
+        Output lines look like:
+        `eDP-1: 1920x1080, scale: 1, currently displaying: image: /p/x.png`
+        Per-output restore fidelity is lost (one image goes to all
+        outputs on restore) - good enough for a stop button.
+        """
+        if self._swww_seen is not None:
+            return
+        self._swww_seen = True
+        self._swww_backup = None
+        ok, out, _err = run_command(["swww", "query"], timeout=5)
+        if not ok:
+            return
+        for line in out.splitlines():
+            marker = "image: "
+            if marker in line:
+                self._swww_backup = line.split(marker, 1)[1].strip()
+                return
+
     def set_image(self, path: str) -> bool:
         if not _which("swww"):
             return False
         if not ensure_swww_daemon():
             return False
+        self._snapshot_swww()
         ok, _out, _err = run_command(swww_command(path))
         return ok
+
+    def restore(self) -> None:
+        if self._swww_seen and self._swww_backup:
+            run_command(swww_command(self._swww_backup))
+        else:
+            debug_log("RESTORE(wlroots): no captured wallpaper state")
 
     def set_video(self, path: str, muted: bool, volume: float,
                   geometry: str | None = None) -> bool:
@@ -398,12 +568,14 @@ class KdeBackend(WlrootsBackend):
     """KDE Plasma: own image tool, mpvpaper video (works on KWin Wayland)."""
 
     name = "kde"
-    required_tools = ("plasma-apply-wallpaperimage", "mpvpaper")
+    required_tools = ("mpvpaper",)
+    session_tools = ("plasma-apply-wallpaperimage",)
 
     def set_image(self, path: str) -> bool:
-        if not _which("plasma-apply-wallpaperimage"):
+        exe = session_tool("plasma-apply-wallpaperimage")
+        if not exe:
             return False
-        ok, _out, _err = run_command(plasma_command(path))
+        ok, _out, _err = run_command(plasma_command(path, exe=exe))
         return ok
 
 
@@ -412,19 +584,52 @@ class GnomeBackend(LinuxProcessBackend):
     Hanabi Shell extension - there is no public video-background API)."""
 
     name = "gnome"
-    required_tools = ("gsettings",)
+    session_tools = ("gsettings",)
 
     HANABI_NOTE = ("GNOME Wayland has no video-wallpaper API. "
                    "Install the Hanabi extension (github.com/jeffshee/gnome-ext-hanabi).")
 
+    _BG_SCHEMA = "org.gnome.desktop.background"
+    _BG_KEYS = ("picture-uri", "picture-uri-dark")
+
+    def __init__(self):
+        super().__init__()
+        # {key: raw gsettings value} captured before our first set.
+        self._saved_uris: dict | None = None
+
+    def _snapshot_uris(self, exe: str) -> None:
+        if self._saved_uris is not None:
+            return
+        self._saved_uris = {}
+        for key in self._BG_KEYS:
+            ok, out, _err = run_command(
+                [exe, "get", self._BG_SCHEMA, key])
+            # Keep the raw GVariant literal ('file:///x' or '') so the
+            # restore `gsettings set` can use it verbatim.
+            self._saved_uris[key] = out.strip() if ok else "''"
+
     def set_image(self, path: str) -> bool:
-        if not _which("gsettings"):
+        exe = session_tool("gsettings")
+        if not exe:
             return False
-        for cmd in gsettings_commands(path):
+        self._snapshot_uris(exe)
+        for cmd in gsettings_commands(path, exe=exe):
             ok, _out, _err = run_command(cmd)
             if not ok:
                 return False
         return True
+
+    def restore(self) -> None:
+        if not self._saved_uris:
+            debug_log("RESTORE(gnome): no captured wallpaper state")
+            return
+        exe = session_tool("gsettings") or "gsettings"
+        for key, raw in self._saved_uris.items():
+            if raw:
+                ok, _out, err = run_command(
+                    [exe, "set", self._BG_SCHEMA, key, raw])
+                if not ok:
+                    debug_log(f"RESTORE(gnome): set {key} failed: {err}")
 
     def set_video(self, path: str, muted: bool, volume: float,
                   geometry: str | None = None) -> bool:
@@ -472,9 +677,10 @@ def detect_backend(env=None):
             continue
         backend = cls()
         try:
-            if not backend.missing_tools() or len(backend.missing_tools()) < len(
-                backend.required_tools
-            ):
+            total = (len(backend.required_tools)
+                     + len(backend.session_tools))
+            if not backend.missing_tools() or len(
+                    backend.missing_tools()) < total:
                 return backend
         except Exception:
             continue

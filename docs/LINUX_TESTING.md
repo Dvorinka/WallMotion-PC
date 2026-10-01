@@ -1,0 +1,115 @@
+# Linux hardware testing report
+
+Linux v1 was landed code-reviewed but never run on hardware
+(TODO: "Linux hardware testing matrix"). This is the first pass:
+the v1.0.5 release AppImage on a real machine, findings, fixes, and a
+re-test of a locally rebuilt AppImage with bundled renderers.
+
+> **Headline finding.** On this machine `gsettings` resolved through
+> PATH to **Linuxbrew's** `~/.linuxbrew/bin/gsettings`, which uses the
+> **keyfile backend** (`~/.config/glib-2.0/settings/keyfile`). Every
+> `gsettings set` the app made — apply, snapshot, restore — vanished
+> into that shadow store while `gsettings get` echoed it back, so all
+> reads looked consistent and nothing ever reached the dconf database
+> GNOME actually renders. The wallpaper visibly never changed, and the
+> earlier round-trip "verification" was consistent only inside the
+> shadow store. Session-integrated tools are now resolved against
+> canonical system dirs (`/usr/bin`, `/bin`, `/usr/local/bin`) before
+> PATH (`session_tool()`); verification below is through
+> `/usr/bin/dconf`, not `gsettings`.
+
+## Environment
+
+| | |
+|---|---|
+| OS | Ubuntu 26.04.1 LTS |
+| Kernel | 7.0.0-34-generic, x86_64 |
+| Session | Wayland |
+| Desktop | `ubuntu:GNOME` (`XDG_CURRENT_DESKTOP`), Mutter |
+| Display | 1920x1200 |
+| Build under test | `WallMotion-x86_64.AppImage` v1.0.5 (release), plus a locally rebuilt AppImage from the fix branch |
+
+## Verified working (v1.0.5 + fixed build)
+
+- AppImage boots on Wayland, Qt HiDPI scaling correct.
+- Session detection: `session=wayland desktop=ubuntu,gnome → backend=gnome`.
+- XDG paths created: `~/.config/wallmotion`, `~/.local/share/wallmotion`,
+  `~/.local/state/wallmotion`.
+- Static image apply via `gsettings` — both `picture-uri` and
+  `picture-uri-dark` written to the real dconf db (verified through
+  `/usr/bin/dconf` and visually: desktop turns blue, then back).
+- CLI single-instance forwarding: `--set`, `--stop`, `--version`
+  forward over `wallmotion.cli.sock` to the running instance.
+- `--stop` restores the previous wallpaper (fixed build) — confirmed
+  against the user's real custom wallpaper, not a default.
+- Video apply on GNOME shows the documented Hanabi notice — by design.
+- `yt_dlp` and `imageio-ffmpeg` (with bundled ffmpeg) ship inside the
+  AppImage — downloads are self-contained.
+- Debug log persists across CLI invocations (fixed build).
+- Rebuilt AppImage carries `mpv`, `feh`, `xwinwrap`, `mpvpaper`,
+  `swww`, `swww-daemon`; each runs from the AppImage mount with its
+  bundled libs (`ldd` clean for all but blacklisted `libX11`, which
+  resolves against the host as intended).
+
+Sample `debug.log` (fixed build, GNOME Wayland):
+
+```
+=== Live Wallpaper start ===
+[10:21:29.422] APP start
+[10:21:29.810] PLATFORM: session=wayland desktop=ubuntu,gnome backend=gnome
+[10:22:08.886] CMD: ['set']
+[10:22:08.891] APPLY: path=/tmp/wm-test.png ext=.png screen=1920x1200
+[10:22:13.380] CMD: ['stop']
+```
+
+`/usr/bin/dconf` round-trip on the fixed build:
+
+```
+set  → 'file:///tmp/wm-test.png'                                  (blue, visible)
+stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, restored)
+```
+
+## Bugs found and fixed
+
+| # | Bug | Fix |
+|---|---|---|
+| 0 | **`gsettings` resolved via PATH hit a Linuxbrew shadow binary on the keyfile backend — every apply/restore wrote to a shadow store and the wallpaper never changed** | `session_tool()` resolves session-integrated tools (`gsettings`, `plasma-apply-wallpaperimage`, `xprop`/`xwininfo`/`xrandr`) against `/usr/bin`, `/bin`, `/usr/local/bin` before PATH; backends spawn the resolved absolute path |
+| 1 | `debug.log` truncated on **every** CLI call — the UI opens it `w+` before deciding it's a forwarder | log opened in append mode, opened only once per process |
+| 2 | `--stop` printed "restored" but restored nothing on Linux | `platform/linux` gained `Backend.restore()` (GNOME gsettings snapshot, X11 `~/.fehbg` snapshot, wlroots `swww query` snapshot); `stop_wallpaper` calls it |
+| 3 | Static images re-encoded to BMP and copied to `/tmp` on Linux — volatile path + needless re-encode | Linux applies the source path; every Linux renderer scales natively |
+| 4 | `mpvpaper`/`xwinwrap+mpv` muted start used `no-audio` — audio stream absent forever, mute toggle unrecoverable | muted start uses `mute=yes`, audio stream kept, IPC `cycle mute` restores |
+| 5 | `--version` printed a static dev string | `app_version()` reads `assets/VERSION` (CI writes the tag); falls back to `dev` |
+| 6 | `_quiet_ffmpeg` knew only `.dll` names → no-op on Linux | derived `libavutil.so.N` and `libavutil-N.dll` variants added |
+| 7 | Fullscreen auto-pause sensor Windows-only | X11 probe via `xprop`/`xwininfo`/`xrandr` (wm-independent, no deps on X11 sessions); Wayland keeps no-op (no compositor-neutral query) |
+| 8 | Renderers had to be installed manually — AppImage carried none | CI builds `xwinwrap`/`mpvpaper`/`swww` from pinned sources and packages `mpv`+`feh` via linuxdeploy; backend resolves bundled dir → `~/.local/share/wallmotion/bin` → `$PATH`, and exports the merged PATH to spawned tools (xwinwrap needs it to find mpv) |
+
+## Known limitations (unchanged)
+
+- **GNOME Wayland video**: no public shell API for video wallpapers;
+  requires the Hanabi extension. Detected and messaged, not a crash.
+- **Wayland fullscreen auto-pause**: no compositor-neutral way to ask
+  "is the active window fullscreen". Rule is a no-op on Wayland.
+- **mpvpaper** targets all outputs (`*`) — per-output selection needs
+  compositor-specific enumeration.
+- XWayland note: on Wayland `DISPLAY` is set, but `XDG_SESSION_TYPE`
+  takes precedence so `xwinwrap` is never selected there — correct.
+
+## Matrix status
+
+| Session | Image | Video | Tested on hardware? |
+|---|---|---|---|
+| GNOME Wayland | `gsettings` ✓ | Hanabi notice ✓ | yes — this pass |
+| X11 | `feh` | `xwinwrap`+`mpv` | backend + tool-path covered by tests; pending hardware |
+| KDE Wayland | `plasma-apply-wallpaperimage` | `mpvpaper` | pending |
+| Sway/Hyprland/wlroots | `swww` | `mpvpaper` | pending |
+
+## Reproducing
+
+```bash
+sudo apt install feh mpv x11-utils          # only needed when running from source
+./WallMotion-x86_64.AppImage &              # or: python main.py
+./WallMotion-x86_64.AppImage --set /path/to/image.png
+gsettings get org.gnome.desktop.background picture-uri
+./WallMotion-x86_64.AppImage --stop         # restores previous wallpaper
+cat ~/.local/state/wallmotion/debug.log
+```

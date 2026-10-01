@@ -28,10 +28,11 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   `mpvpaper` / `xwinwrap`+`mpv`, live volume/mute/pause over mpv JSON IPC,
   sysfs battery sensor for autopause, UI wiring with missing-tool messages,
   30+ headless tests. GNOME-Wayland video stays a documented gap (Hanabi).
-- [ ] **Linux hardware testing matrix** — verify image + video + IPC on
-  real sessions (X11 VM, Sway/Hyprland, KDE-Wayland, GNOME-Wayland image),
-  record results in `docs/` and fix fallout. Code is landed but untested
-  on hardware.
+- [~] **Linux hardware testing matrix** — verify image + video + IPC on
+  real sessions, record results in `docs/` and fix fallout.
+  GNOME-Wayland verified (image apply/restore, CLI, IPC-socket,
+  bundled renderers) — see `docs/LINUX_TESTING.md`. Still open:
+  X11, Sway/Hyprland, KDE-Wayland on hardware.
 - [x] **Linux per-monitor outputs** — X11 video targets the chosen monitor
   via `xwinwrap -g WxH+X+Y` (Qt-based monitor list where WinAPI is absent);
   mpvpaper stays all-outputs `*` (output names need hardware enumeration).

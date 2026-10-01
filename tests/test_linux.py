@@ -85,7 +85,12 @@ class TestCommands:
             "plasma-apply-wallpaperimage", "/a/b.png"]
 
     def test_mpv_options_muted(self):
-        assert L.mpv_options(True, 0.8) == "loop-file=inf no-audio"
+        # mute=yes (not no-audio): the audio stream must stay alive so a
+        # later `set_property mute no` over IPC can unmute.
+        opts = L.mpv_options(True, 0.8)
+        assert "mute=yes" in opts
+        assert "no-audio" not in opts
+        assert "loop-file=inf" in opts
 
     def test_mpv_options_volume(self):
         assert L.mpv_options(False, 0.6) == "loop-file=inf volume=60 mute=no"
@@ -189,6 +194,148 @@ class TestDetectBackend:
     def test_tty_no_backend(self, monkeypatch):
         monkeypatch.setattr(L, "_which", lambda name: f"/usr/bin/{name}")
         assert L.detect_backend({"XDG_SESSION_TYPE": "tty"}) is None
+
+
+class TestBundledTools:
+    def test_bundled_dirs_xdg(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        bindir = tmp_path / "wallmotion" / "bin"
+        bindir.mkdir(parents=True)
+        dirs = L.bundled_bin_dirs()
+        assert str(bindir) in dirs
+
+    def test_bundled_dirs_missing_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "nope"))
+        # AppImage dir may or may not exist under pytest (not frozen),
+        # but nothing may raise and every entry must be a real dir.
+        import os
+        assert all(os.path.isdir(d) for d in L.bundled_bin_dirs())
+
+    def test_tool_env_prepends_bundled(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        bindir = tmp_path / "wallmotion" / "bin"
+        bindir.mkdir(parents=True)
+        monkeypatch.setenv("PATH", "/usr/bin")
+        env = L.tool_env()
+        assert env["PATH"].split(os.pathsep)[0] == str(bindir)
+
+    def test_which_finds_bundled_tool(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+        bindir = tmp_path / "wallmotion" / "bin"
+        bindir.mkdir(parents=True)
+        tool = bindir / "mpv"
+        tool.write_text("#!/bin/sh\n", encoding="utf-8")
+        tool.chmod(0o755)
+        assert L._which("mpv") == str(tool)
+
+
+class TestSessionTool:
+    """Session tools must be the real system binaries: a user-prefix
+    shadow (Linuxbrew gsettings -> keyfile backend) must lose to
+    /usr/bin even when PATH lists the shadow first."""
+
+    def _exe(self, dirpath, name):
+        p = dirpath / name
+        p.write_text("#!/bin/sh\n", encoding="utf-8")
+        p.chmod(0o755)
+        return p
+
+    def test_system_dir_beats_path(self, tmp_path, monkeypatch):
+        sysdir = tmp_path / "sysbin"
+        sysdir.mkdir()
+        pathdir = tmp_path / "brewbin"
+        pathdir.mkdir()
+        real = self._exe(sysdir, "gsettings")
+        self._exe(pathdir, "gsettings")
+        monkeypatch.setattr(L, "SYSTEM_BIN_DIRS", (str(sysdir),))
+        monkeypatch.setenv("PATH", f"{pathdir}{os.pathsep}{sysdir}")
+        assert L.session_tool("gsettings") == str(real)
+
+    def test_falls_back_to_which(self, tmp_path, monkeypatch):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(L, "SYSTEM_BIN_DIRS", (str(empty),))
+        monkeypatch.setattr(L, "_which", lambda name: f"/opt/bin/{name}")
+        assert L.session_tool("gsettings") == "/opt/bin/gsettings"
+
+    def test_missing_returns_none(self, tmp_path, monkeypatch):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(L, "SYSTEM_BIN_DIRS", (str(empty),))
+        monkeypatch.setattr(L, "_which", lambda name: None)
+        assert L.session_tool("gsettings") is None
+        assert "gsettings" in L.GnomeBackend().missing_tools()
+
+    def test_gnome_uses_resolved_exe(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            L, "session_tool", lambda name: f"/sys/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(list(cmd))
+            or (True, "''\n", ""))
+        assert L.GnomeBackend().set_image("/new.png") is True
+        assert all(c[0] == "/sys/bin/gsettings" for c in calls)
+
+
+class TestRestore:
+    def test_gnome_snapshot_and_restore(self, monkeypatch):
+        calls = []
+
+        def fake_run(cmd, timeout=15):
+            calls.append(list(cmd))
+            if cmd[1] == "get":
+                return True, "'file:///usr/share/old.png'\n", ""
+            return True, "", ""
+
+        monkeypatch.setattr(L, "run_command", fake_run)
+        monkeypatch.setattr(L, "_which", lambda name: "/usr/bin/" + name)
+        backend = L.GnomeBackend()
+        assert backend.set_image("/new.png") is True
+        backend.restore()
+        sets = [c for c in calls if c[1] == "set"]
+        # 2 set_image calls + 2 restore calls
+        assert len(sets) == 4
+        assert sets[2][4] == "'file:///usr/share/old.png'"
+        assert sets[3][3] == "picture-uri-dark"
+
+    def test_gnome_restore_without_apply_noops(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        L.GnomeBackend().restore()
+        assert calls == []
+
+    def test_x11_fehbg_snapshot(self, tmp_path, monkeypatch):
+        fehbg = tmp_path / ".fehbg"
+        fehbg.write_text("#!/bin/sh\nfeh --bg-fill '/old.png'\n",
+                         encoding="utf-8")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(L, "_which", lambda name: "/usr/bin/" + name)
+        calls = []
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        backend = L.X11Backend()
+        assert backend.set_image("/new.png") is True
+        backend.restore()
+        # restore replays the saved script through sh
+        assert calls[-1][0] == "/bin/sh"
+        assert "old.png" in fehbg.read_text(encoding="utf-8")
+
+    def test_wlroots_snapshot_parses_query(self, monkeypatch):
+        def fake_run(cmd, timeout=15):
+            if cmd[:2] == ["swww", "query"]:
+                return True, ("eDP-1: 1920x1080, scale: 1, "
+                              "currently displaying: image: /old.png\n"), ""
+            return True, "", ""
+
+        monkeypatch.setattr(L, "run_command", fake_run)
+        monkeypatch.setattr(L, "_which", lambda name: "/usr/bin/" + name)
+        backend = L.WlrootsBackend()
+        assert backend.set_image("/new.png") is True
+        assert backend._swww_backup == "/old.png"
 
 
 class TestAutostart:
