@@ -51,6 +51,7 @@ from wallmotion.i18n import (
 )
 from wallmotion.linux_video import LinuxVideoWallpaper
 from wallmotion.platform import get_backend
+from wallmotion.rotation import INTERVALS, RotationQueue, format_interval
 from wallmotion.updatecheck import (
     UpdateCheckWorker,
     is_newer,
@@ -174,7 +175,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Live Wallpaper")
-        self.setFixedSize(430, 672)
+        self.setFixedSize(430, 744)
 
         self.video_window = None
         self.selected_path = None
@@ -210,6 +211,11 @@ class MainWindow(QMainWindow):
         self._update_last_check = 0.0
         self._update_last_seen = ""
         self._volumes = {}
+        self.rotation = RotationQueue()
+        self.rotation_enabled = False
+        self.rotation_interval = INTERVALS[1]
+        self.rotation_timer = QTimer(self)
+        self.rotation_timer.timeout.connect(self._on_rotation_timeout)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -310,6 +316,45 @@ class MainWindow(QMainWindow):
         self.volume_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         vol_row.addWidget(self.volume_value)
         layout.addLayout(vol_row)
+
+        # -- rotace tapet ------------------------------------------------
+        rot_row = QHBoxLayout()
+        rot_row.setSpacing(8)
+        self.rotation_checkbox = QCheckBox()
+        self.rotation_checkbox.setChecked(False)
+        self.rotation_checkbox.toggled.connect(self._on_rotation_toggled)
+        rot_row.addWidget(self.rotation_checkbox)
+        self.rotation_interval_label = QLabel()
+        rot_row.addWidget(self.rotation_interval_label)
+        self.rotation_interval_combo = QComboBox()
+        for seconds in INTERVALS:
+            self.rotation_interval_combo.addItem(
+                format_interval(seconds), seconds)
+        self.rotation_interval_combo.setCurrentIndex(1)
+        self.rotation_interval_combo.currentIndexChanged.connect(
+            self._on_rotation_settings_changed)
+        rot_row.addWidget(self.rotation_interval_combo, 1)
+        self.rotation_shuffle_checkbox = QCheckBox()
+        self.rotation_shuffle_checkbox.setChecked(False)
+        self.rotation_shuffle_checkbox.toggled.connect(
+            self._on_rotation_settings_changed)
+        rot_row.addWidget(self.rotation_shuffle_checkbox)
+        layout.addLayout(rot_row)
+
+        rot_btn_row = QHBoxLayout()
+        rot_btn_row.setSpacing(8)
+        self.rotation_add_btn = QPushButton()
+        self.rotation_add_btn.setObjectName("secondary")
+        self.rotation_add_btn.clicked.connect(self._on_rotation_add)
+        rot_btn_row.addWidget(self.rotation_add_btn, 1)
+        self.rotation_clear_btn = QPushButton()
+        self.rotation_clear_btn.setObjectName("secondary")
+        self.rotation_clear_btn.clicked.connect(self._on_rotation_clear)
+        rot_btn_row.addWidget(self.rotation_clear_btn, 1)
+        self.rotation_count_label = QLabel()
+        self.rotation_count_label.setObjectName("status")
+        rot_btn_row.addWidget(self.rotation_count_label)
+        layout.addLayout(rot_btn_row)
 
         self.apply_btn = QPushButton()
         self.apply_btn.clicked.connect(self.apply_wallpaper)
@@ -444,6 +489,26 @@ class MainWindow(QMainWindow):
                 except Exception:
                     self._volumes = {}
                 try:
+                    rot = cfg.get("rotation", {})
+                    self.rotation = RotationQueue.from_config(rot)
+                    self.rotation.prune_missing()
+                    self.rotation_enabled = bool(rot.get("enabled", False))
+                    interval = int(rot.get("interval", INTERVALS[1]))
+                    if interval in INTERVALS:
+                        self.rotation_interval = interval
+                    self.rotation_checkbox.blockSignals(True)
+                    self.rotation_checkbox.setChecked(self.rotation_enabled)
+                    self.rotation_checkbox.blockSignals(False)
+                    self.rotation_shuffle_checkbox.blockSignals(True)
+                    self.rotation_shuffle_checkbox.setChecked(self.rotation.shuffle)
+                    self.rotation_shuffle_checkbox.blockSignals(False)
+                    idx = list(INTERVALS).index(self.rotation_interval)
+                    self.rotation_interval_combo.blockSignals(True)
+                    self.rotation_interval_combo.setCurrentIndex(idx)
+                    self.rotation_interval_combo.blockSignals(False)
+                except Exception:
+                    pass
+                try:
                     self.volume_slider.blockSignals(True)
                     self.volume_slider.setValue(int(cfg.get("volume", 30)))
                     self.volume_slider.blockSignals(False)
@@ -468,6 +533,8 @@ class MainWindow(QMainWindow):
             self.theme_combo.blockSignals(False)
         except Exception:
             pass
+        self._restart_rotation_timer()
+        self._refresh_rotation_label()
 
     def _save_config(self):
         try:
@@ -494,6 +561,11 @@ class MainWindow(QMainWindow):
                     "update_last_check": self._update_last_check,
                     "update_last_seen": self._update_last_seen,
                     "volumes": self._volumes,
+                    "rotation": {
+                        **self.rotation.to_config(),
+                        "enabled": self.rotation_enabled,
+                        "interval": self.rotation_interval,
+                    },
                 }, f)
         except Exception:
             pass
@@ -595,6 +667,12 @@ class MainWindow(QMainWindow):
         self.pause_batt_checkbox.setText(s["pause_battery"])
         self.monitor_label.setText(s["monitor_label"])
         self._refresh_monitor_combo()
+        self.rotation_checkbox.setText(s["rotation_enable"])
+        self.rotation_interval_label.setText(s["rotation_interval"])
+        self.rotation_shuffle_checkbox.setText(s["rotation_shuffle"])
+        self.rotation_add_btn.setText(s["rotation_add"])
+        self.rotation_clear_btn.setText(s["rotation_clear"])
+        self._refresh_rotation_label()
         self.volume_label.setText(s["volume_label"])
         self.apply_btn.setText(s["apply"])
         self.measure_btn.setText(s["measure"])
@@ -813,6 +891,73 @@ class MainWindow(QMainWindow):
                 self, s["vid_fail_t"],
                 s["linux_missing"].format(tools=tools),
             )
+
+    def _rotation_interval_seconds(self) -> int:
+        try:
+            return int(self.rotation_interval_combo.currentData() or INTERVALS[1])
+        except Exception:
+            return INTERVALS[1]
+
+    def _refresh_rotation_label(self):
+        try:
+            self.rotation_count_label.setText(
+                self.S()["rotation_count"].format(n=len(self.rotation.files)))
+        except Exception:
+            pass
+
+    def _restart_rotation_timer(self):
+        try:
+            if self.rotation_enabled and len(self.rotation.files) > 0:
+                self.rotation_timer.start(self.rotation_interval * 1000)
+            else:
+                self.rotation_timer.stop()
+        except Exception:
+            pass
+
+    def _on_rotation_toggled(self, checked: bool):
+        self.rotation_enabled = bool(checked)
+        self._save_config()
+        self._restart_rotation_timer()
+
+    def _on_rotation_settings_changed(self, _index=None):
+        try:
+            self.rotation_interval = self._rotation_interval_seconds()
+            self.rotation.set_shuffle(
+                self.rotation_shuffle_checkbox.isChecked())
+        except Exception:
+            pass
+        self._save_config()
+        self._restart_rotation_timer()
+
+    def _on_rotation_add(self):
+        if self.selected_path and os.path.exists(self.selected_path):
+            if self.rotation.add(self.selected_path):
+                self._save_config()
+        self._refresh_rotation_label()
+
+    def _on_rotation_clear(self):
+        self.rotation.clear()
+        self.rotation_enabled = False
+        try:
+            self.rotation_checkbox.blockSignals(True)
+            self.rotation_checkbox.setChecked(False)
+            self.rotation_checkbox.blockSignals(False)
+        except Exception:
+            pass
+        self._save_config()
+        self._restart_rotation_timer()
+        self._refresh_rotation_label()
+
+    def _on_rotation_timeout(self):
+        try:
+            path = self.rotation.next_file()
+            if not path:
+                return
+            self._on_file_chosen(path)
+            self.apply_wallpaper()
+            self._save_config()
+        except Exception as e:
+            debug_log(f"ROTATION exception: {e!r}")
 
     def open_downloads_folder(self):
         """Open the downloaded videos folder in Explorer."""

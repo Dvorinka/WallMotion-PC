@@ -64,8 +64,8 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   display label. Emoji render inconsistently across Windows themes and won't
   survive Linux at all; ship SVG/PNG icons in `assets/` instead. Also matches
   the project rule: no emojis in UI.
-- [ ] **Wallpaper rotation/scheduling** — playlist of local images/videos,
-  interval switcher. Natural extension once a library exists.
+- [x] **Wallpaper rotation/scheduling** — playlist of local images/videos,
+  interval switcher with shuffle, persisted queue.
 - [ ] **libmpv decode engine** — kills the H.264-only ceiling (AV1/VP9) and
   unifies Windows + Linux render paths. Evaluate when AV1 YouTube content
   becomes annoying.

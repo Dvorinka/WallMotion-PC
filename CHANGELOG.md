@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to tag Releases next to the Windows .exe.
 - Per-wallpaper volume memory: mute/volume is remembered for each file
   (last 100) and restored on selection.
+- Wallpaper rotation: queue of local images/videos with 1 min–1 h
+  interval and shuffle, persisted between launches.
 - Code comments translated to English (user-facing strings stay
   Czech/English in `locales/`).
 
