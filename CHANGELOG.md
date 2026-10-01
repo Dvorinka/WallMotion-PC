@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-01
+
 ### Added
 - Web library: localhost panel (`http://127.0.0.1:8765/`) with a grid
   of downloaded videos (ffmpeg thumbnails) and images, one-click
   apply and stop; tray action opens it in the browser.
+
+### Fixed
+- Light theme left the window background dark; content background now
+  follows the theme. Language/theme toggles moved into the title row.
 
 ## [1.0.7] - 2026-10-01
 
@@ -87,7 +93,8 @@ First stable release.
   debug log at `%TEMP%\live_wallpaper_debug.log`.
 - Standalone `WallMotion.exe` (PyInstaller, ~65 MB).
 
-[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.7...HEAD
+[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.8...HEAD
+[1.0.8]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.8
 [1.0.7]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.7
 [1.0.6]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.5
