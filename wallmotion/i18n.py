@@ -40,6 +40,9 @@ QScrollArea {{
     background: transparent;
     border: none;
 }}
+QWidget#content {{
+    background-color: {t['bg']};
+}}
 QWidget {{
     color: {t['text']};
     font-family: "Segoe UI", sans-serif;

@@ -181,7 +181,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Live Wallpaper")
         self.setMinimumSize(430, 620)
-        self.resize(430, 800)
+        self.resize(430, 760)
 
         self.video_window = None
         self.selected_path = None
@@ -225,13 +225,29 @@ class MainWindow(QMainWindow):
         self.rotation_timer.timeout.connect(self._on_rotation_timeout)
 
         content = QWidget()
+        content.setObjectName("content")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
 
+        # -- title row with language + theme toggle buttons --------------
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         self.title_label = QLabel("Live Wallpaper")
         self.title_label.setObjectName("title")
-        layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label)
+        title_row.addStretch(1)
+        self.lang_button = QPushButton()
+        self.lang_button.setObjectName("secondary")
+        self.lang_button.setFixedWidth(56)
+        self.lang_button.clicked.connect(self._toggle_lang)
+        title_row.addWidget(self.lang_button)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("secondary")
+        self.theme_button.setFixedSize(48, 34)
+        self.theme_button.clicked.connect(self._toggle_theme)
+        title_row.addWidget(self.theme_button)
+        layout.addLayout(title_row)
 
         self.subtitle_label = QLabel()
         self.subtitle_label.setObjectName("subtitle")
@@ -240,22 +256,6 @@ class MainWindow(QMainWindow):
         self.screen_label = QLabel()
         self.screen_label.setObjectName("status")
         layout.addWidget(self.screen_label)
-
-        # -- settings: language + theme toggle buttons ----------------------
-        settings_row = QHBoxLayout()
-        settings_row.setSpacing(8)
-        settings_row.addStretch(1)
-        self.lang_button = QPushButton()
-        self.lang_button.setObjectName("secondary")
-        self.lang_button.setFixedWidth(56)
-        self.lang_button.clicked.connect(self._toggle_lang)
-        settings_row.addWidget(self.lang_button)
-        self.theme_button = QPushButton()
-        self.theme_button.setObjectName("secondary")
-        self.theme_button.setFixedSize(48, 34)
-        self.theme_button.clicked.connect(self._toggle_theme)
-        settings_row.addWidget(self.theme_button)
-        layout.addLayout(settings_row)
 
         # -- monitor selection ------------------------------------------------
         monitor_row = QHBoxLayout()
