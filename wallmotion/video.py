@@ -18,6 +18,7 @@ from wallmotion.autopause import (
     is_on_battery,
     should_pause,
 )
+from wallmotion.frames import ensure_packed_rgb32
 from wallmotion.utils import _quiet_ffmpeg, debug_log
 from wallmotion.win32 import (
     _BLACKNESS,
@@ -85,6 +86,7 @@ class VideoWallpaperWindow(QWidget):
         self._autopause_timer = None
         self._autopaused = False
         self._clean_polls = 0
+        self._user_paused = False  # manual Pause button (autopause must not override)
 
         self.player = QMediaPlayer(self)
         self.audio_output = QAudioOutput(self)
@@ -159,7 +161,7 @@ class VideoWallpaperWindow(QWidget):
                 self._start_autopause_timer()
             else:
                 self._stop_autopause_timer()
-                if self._autopaused:
+                if self._autopaused and not self._user_paused:
                     self._resume_playback("rules-off")
         except Exception as e:
             debug_log(f"AUTOPAUSE: set_auto_pause vyjimka: {e!r}")
@@ -199,6 +201,24 @@ class VideoWallpaperWindow(QWidget):
         except Exception as e:
             debug_log(f"AUTOPAUSE: play selhalo: {e!r}")
 
+    def set_user_paused(self, paused: bool) -> None:
+        """Manual Pause button: freeze the frame, keep the canvas.
+
+        Autopause never resumes a user-paused video (see tick guard).
+        """
+        self._user_paused = bool(paused)
+        try:
+            if self._user_paused:
+                self.player.pause()
+            elif not self._autopaused:
+                self.player.play()
+            debug_log(f"user paused={self._user_paused}")
+        except Exception as e:
+            debug_log(f"user pause failed: {e!r}")
+
+    def is_user_paused(self) -> bool:
+        return bool(self._user_paused)
+
     def _autopause_tick(self) -> None:
         """Poll sensors every POLL_INTERVAL_MS. Pause at once, resume only
         after RESUME_AFTER_CLEAN_POLLS clean polls (no alt-tab flapping)."""
@@ -207,6 +227,8 @@ class VideoWallpaperWindow(QWidget):
                 return
             if self._canvas == 0:
                 return  # already stopped
+            if self._user_paused:
+                return  # manual pause wins, do not touch playback
             try:
                 fullscreen = (
                     is_fullscreen_app_active() if self._pause_on_fullscreen else False
@@ -462,8 +484,7 @@ class VideoWallpaperWindow(QWidget):
             if img.isNull():
                 debug_log("FRAME: toImage null")
                 return
-            if img.format() != QImage.Format.Format_RGB32:
-                img = img.convertToFormat(QImage.Format.Format_RGB32)
+            img = ensure_packed_rgb32(img)
             sw, sh = img.width(), img.height()
             if sw <= 0 or sh <= 0 or self._dw <= 0 or self._dh <= 0:
                 debug_log(f"FRAME: spatny rozmer src={sw}x{sh} dst={self._dw}x{self._dh}")
@@ -631,6 +652,7 @@ class VideoWallpaperWindow(QWidget):
         )
         self._stop_autopause_timer()
         self._autopaused = False
+        self._user_paused = False
         try:
             self.player.stop()
         except Exception:

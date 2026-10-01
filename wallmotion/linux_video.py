@@ -41,6 +41,7 @@ class LinuxVideoWallpaper(QObject):
         self._autopaused = False
         self._clean_polls = 0
         self._running = False
+        self._user_paused = False  # manual Pause button (autopause must not override)
 
     def set_muted(self, muted: bool) -> None:
         self._muted = bool(muted)
@@ -66,7 +67,7 @@ class LinuxVideoWallpaper(QObject):
                 self._start_timer()
             else:
                 self._stop_timer()
-                if self._autopaused:
+                if self._autopaused and not self._user_paused:
                     self.resume("rules-off")
         except Exception as e:
             debug_log(f"AUTOPAUSE: set_auto_pause error: {e!r}")
@@ -78,6 +79,18 @@ class LinuxVideoWallpaper(QObject):
             self._clean_polls = 0
         except Exception as e:
             debug_log(f"AUTOPAUSE: pause error: {e!r}")
+
+    def set_user_paused(self, paused: bool) -> None:
+        """Manual Pause button: freeze the frame, keep the process."""
+        self._user_paused = bool(paused)
+        try:
+            self._backend.set_paused(self._user_paused)
+            debug_log(f"user paused={self._user_paused}")
+        except Exception as e:
+            debug_log(f"user pause error: {e!r}")
+
+    def is_user_paused(self) -> bool:
+        return bool(self._user_paused)
 
     def resume(self, reason: str = "") -> None:
         try:
@@ -121,6 +134,7 @@ class LinuxVideoWallpaper(QObject):
     def stop(self) -> None:
         self._stop_timer()
         self._autopaused = False
+        self._user_paused = False
         self._running = False
         try:
             self._backend.stop()
@@ -172,6 +186,8 @@ class LinuxVideoWallpaper(QObject):
                 return
             if not self._running:
                 return
+            if self._user_paused:
+                return  # manual pause wins, do not touch playback
             try:
                 fullscreen = (
                     is_fullscreen_app_active() if self._pause_on_fullscreen else False

@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 
-from PySide6.QtCore import QLoggingCategory, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QLoggingCategory,
+    QObject,
+    Qt,
+    QTimer,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
+    QColor,
+    QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
+    QPainter,
+    QPen,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -31,6 +43,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
     QStyle,
     QSystemTrayIcon,
@@ -72,6 +85,7 @@ from wallmotion.wallpaper import (
     get_current_wallpaper,
     set_static_wallpaper,
 )
+from wallmotion.webui import WebLibraryServer
 from wallmotion.youtube import (
     YT_DIR,
     DownloadWorker,
@@ -177,13 +191,23 @@ class DropZone(QFrame):
         self.clicked.emit()
 
 
+class _WebBridge(QObject):
+    """Relays web-library actions to the GUI thread via signals."""
+
+    apply_requested = Signal(str)
+    stop_requested = Signal()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Live Wallpaper")
-        self.setFixedSize(430, 744)
+        self.setMinimumSize(430, 620)
+        self.resize(430, 760)
 
         self.video_window = None
+        self.mirror_windows = []  # duplicate playback on other monitors
+        self.user_paused = False  # manual Pause button state
         self.selected_path = None
         try:
             self.original_wallpaper = get_current_wallpaper()
@@ -218,21 +242,38 @@ class MainWindow(QMainWindow):
         self._update_last_check = 0.0
         self._update_last_seen = ""
         self._volumes = {}
+        self.web_server = None
+        self._web_bridge = None
         self.rotation = RotationQueue()
         self.rotation_enabled = False
         self.rotation_interval = INTERVALS[1]
         self.rotation_timer = QTimer(self)
         self.rotation_timer.timeout.connect(self._on_rotation_timeout)
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        content = QWidget()
+        content.setObjectName("content")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
 
+        # -- title row with language + theme toggle buttons --------------
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
         self.title_label = QLabel("Live Wallpaper")
         self.title_label.setObjectName("title")
-        layout.addWidget(self.title_label)
+        title_row.addWidget(self.title_label)
+        title_row.addStretch(1)
+        self.lang_button = QPushButton()
+        self.lang_button.setObjectName("secondary")
+        self.lang_button.setFixedWidth(56)
+        self.lang_button.clicked.connect(self._toggle_lang)
+        title_row.addWidget(self.lang_button)
+        self.theme_button = QPushButton()
+        self.theme_button.setObjectName("secondary")
+        self.theme_button.setFixedSize(48, 34)
+        self.theme_button.clicked.connect(self._toggle_theme)
+        title_row.addWidget(self.theme_button)
+        layout.addLayout(title_row)
 
         self.subtitle_label = QLabel()
         self.subtitle_label.setObjectName("subtitle")
@@ -241,25 +282,6 @@ class MainWindow(QMainWindow):
         self.screen_label = QLabel()
         self.screen_label.setObjectName("status")
         layout.addWidget(self.screen_label)
-
-        # -- settings: language + theme -------------------------------------
-        settings_row = QHBoxLayout()
-        settings_row.setSpacing(8)
-        self.lang_label = QLabel()
-        settings_row.addWidget(self.lang_label)
-        self.lang_combo = QComboBox()
-        for code, name in LANGS.items():
-            self.lang_combo.addItem(name, code)
-        self.lang_combo.currentIndexChanged.connect(self._on_lang_changed)
-        settings_row.addWidget(self.lang_combo, 1)
-        self.theme_label = QLabel()
-        settings_row.addWidget(self.theme_label)
-        self.theme_combo = QComboBox()
-        self.theme_combo.addItem("Tmavý", "dark")
-        self.theme_combo.addItem("Světlý", "light")
-        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
-        settings_row.addWidget(self.theme_combo, 1)
-        layout.addLayout(settings_row)
 
         # -- monitor selection ------------------------------------------------
         monitor_row = QHBoxLayout()
@@ -377,12 +399,26 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_wallpaper)
         layout.addWidget(self.stop_btn)
 
+        self.pause_btn = QPushButton()
+        self.pause_btn.setObjectName("secondary")
+        self.pause_btn.clicked.connect(self._toggle_user_pause)
+        layout.addWidget(self.pause_btn)
+
         layout.addStretch()
 
         self.status_label = QLabel()
         self.status_label.setObjectName("status")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+
+        # Scrollable content: the window is resizable and nothing ever
+        # overlaps or gets cut off, whatever the font scaling is.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        self.setCentralWidget(scroll)
 
         self._init_tray()
         self._load_config()
@@ -439,9 +475,15 @@ class MainWindow(QMainWindow):
         self.tray_update_action = QAction("Zkontrolovat aktualizace", self)
         self.tray_update_action.triggered.connect(
             lambda: self._check_updates(force=True))
+        self.tray_library_action = QAction("Otevřít knihovnu", self)
+        self.tray_library_action.triggered.connect(self.open_library)
+        self.tray_pause_action = QAction("Pozastavit", self)
+        self.tray_pause_action.triggered.connect(self._toggle_user_pause)
         self.tray_quit_action = QAction("Ukončit", self)
         self.tray_quit_action.triggered.connect(self.quit_app)
         menu.addAction(self.tray_show_action)
+        menu.addAction(self.tray_library_action)
+        menu.addAction(self.tray_pause_action)
         menu.addAction(self.tray_update_action)
         menu.addAction(self.tray_quit_action)
         self.tray.setContextMenu(menu)
@@ -449,6 +491,50 @@ class MainWindow(QMainWindow):
             lambda reason: self.showNormal() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None
         )
         self.tray.show()
+
+    def _theme_icon(self, dark: bool) -> QIcon:
+        """Painted toggle icon: sun when dark mode is on, moon when light."""
+        try:
+            size = 22
+            pix = QPixmap(size, size)
+            pix.fill(Qt.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.Antialiasing)
+            color = QColor(T("text"))
+            if dark:
+                p.setBrush(color)
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(7, 7, 8, 8)
+                pen = QPen(color)
+                pen.setWidth(2)
+                pen.setCapStyle(Qt.RoundCap)
+                p.setPen(pen)
+                for deg in range(0, 360, 45):
+                    rad = math.radians(deg)
+                    x1 = 11 + 6 * math.cos(rad)
+                    y1 = 11 + 6 * math.sin(rad)
+                    x2 = 11 + 9 * math.cos(rad)
+                    y2 = 11 + 9 * math.sin(rad)
+                    p.drawLine(int(x1), int(y1), int(x2), int(y2))
+            else:
+                p.setBrush(color)
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(4, 3, 14, 14)
+                p.setCompositionMode(QPainter.CompositionMode_Clear)
+                p.drawEllipse(9, 0, 13, 13)
+            p.end()
+            return QIcon(pix)
+        except Exception:
+            return QIcon()
+
+    def _toggle_theme(self):
+        self.apply_theme("light" if self.theme == "dark" else "dark")
+        self.retranslate()
+
+    def _toggle_lang(self):
+        self.lang = "en" if self.lang == "cs" else "cs"
+        self._save_config()
+        self.retranslate()
 
     def S(self) -> dict:
         return STRINGS.get(self.lang, STRINGS["cs"])
@@ -530,16 +616,6 @@ class MainWindow(QMainWindow):
                     self._apply_volume_memory(self.selected_path)
             except Exception:
                 pass
-        # set combo boxes without emitting signals
-        try:
-            self.lang_combo.blockSignals(True)
-            self.lang_combo.setCurrentIndex(list(LANGS).index(self.lang))
-            self.lang_combo.blockSignals(False)
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setCurrentIndex(0 if self.theme == "dark" else 1)
-            self.theme_combo.blockSignals(False)
-        except Exception:
-            pass
         self._restart_rotation_timer()
         self._refresh_rotation_label()
 
@@ -593,12 +669,43 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _stop_all_video_windows(self):
+        """Stop the primary window and every mirror, silently."""
+        try:
+            if self.video_window is not None:
+                self.video_window.stop()
+        except Exception:
+            pass
+        self.video_window = None
+        try:
+            for w in self.mirror_windows:
+                try:
+                    w.stop()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        self.mirror_windows = []
+
+    def _each_video_window(self):
+        """Primary window first, then mirrors (for mute/volume/rules)."""
+        try:
+            if self.video_window is not None:
+                yield self.video_window
+            yield from list(self.mirror_windows)
+        except Exception:
+            return
+
     def _on_mute_toggled(self, checked: bool):
         """F4: save the option and immediately toggle sound of the running wallpaper."""
         self._save_config()
         try:
-            if self.video_window is not None:
-                self.video_window.set_muted(bool(checked))
+            for w in self._each_video_window():
+                # Mirrors stay muted so two monitors never echo.
+                if w is self.video_window:
+                    w.set_muted(bool(checked))
+                else:
+                    w.set_muted(True)
         except Exception:
             pass
 
@@ -606,8 +713,8 @@ class MainWindow(QMainWindow):
         """Save rules and apply them to the running wallpaper immediately."""
         self._save_config()
         try:
-            if self.video_window is not None:
-                self.video_window.set_auto_pause(
+            for w in self._each_video_window():
+                w.set_auto_pause(
                     self.pause_fs_checkbox.isChecked(),
                     self.pause_batt_checkbox.isChecked(),
                 )
@@ -623,7 +730,6 @@ class MainWindow(QMainWindow):
                 self.video_window.set_volume(float(value) / 100.0)
         except Exception:
             pass
-
     # -- theme + language ---------------------------------------------------------
     def apply_theme(self, theme: str, save: bool = True):
         if theme not in THEMES:
@@ -642,30 +748,18 @@ class MainWindow(QMainWindow):
         if save:
             self._save_config()
 
-    def _on_theme_changed(self, _index: int):
-        theme = self.theme_combo.currentData() or "dark"
-        self.apply_theme(theme)
-        self.retranslate()
-
-    def _on_lang_changed(self, _index: int):
-        lang = self.lang_combo.currentData() or "cs"
-        if lang not in STRINGS:
-            lang = "cs"
-        self.lang = lang
-        self._save_config()
-        self.retranslate()
-
     def retranslate(self):
         s = self.S()
         self.subtitle_label.setText(s["subtitle"])
-        self.lang_label.setText(s["lang_label"])
-        self.theme_label.setText(s["theme_label"])
-        # theme combo box texts
+        # Toggle buttons show the *target*: EN while Czech is on, sun
+        # while dark mode is on (click switches to the other one).
         try:
-            self.theme_combo.blockSignals(True)
-            self.theme_combo.setItemText(0, s["theme_dark"])
-            self.theme_combo.setItemText(1, s["theme_light"])
-            self.theme_combo.blockSignals(False)
+            target_lang = "en" if self.lang == "cs" else "cs"
+            self.lang_button.setText("EN" if target_lang == "en" else "CZ")
+            self.lang_button.setToolTip(LANGS.get(target_lang, target_lang))
+            self.theme_button.setIcon(self._theme_icon(self.theme == "dark"))
+            self.theme_button.setToolTip(
+                s["theme_light"] if self.theme == "dark" else s["theme_dark"])
         except Exception:
             pass
         self.drop_zone.set_hint(s["drop_hint"])
@@ -691,10 +785,12 @@ class MainWindow(QMainWindow):
             self.status_label.setText(s["ready"])
         try:
             self.tray_show_action.setText(s["open_tray"])
+            self.tray_library_action.setText(s["tray_library"])
             self.tray_update_action.setText(s["tray_check_update"])
             self.tray_quit_action.setText(s["quit_tray"])
         except Exception:
             pass
+        self._refresh_pause_ui()
         self._refresh_screen_label()
 
     # -- YouTube ---------------------------------------------------------
@@ -880,14 +976,18 @@ class MainWindow(QMainWindow):
         )
         self.video_window.failed.connect(self._on_video_failed)
         if self.video_window.start():
+            self.user_paused = False
             self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
             self.tray.showMessage(
                 s["app_name"], s["vid_started_msg"],
                 QSystemTrayIcon.MessageIcon.Information, 3000
             )
+            self._refresh_pause_ui()
         else:
             self.video_window.stop()
             self.video_window = None
+            self.user_paused = False
+            self._refresh_pause_ui()
             try:
                 tools = ", ".join(backend.missing_tools()) or "?"
             except Exception:
@@ -1145,9 +1245,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, s["warn_nofile_t"], s["warn_nofile_m"])
             return
 
-        if self.video_window is not None:
-            self.video_window.stop()
-            self.video_window = None
+        self._stop_all_video_windows()
 
         ext = os.path.splitext(self.selected_path)[1].lower()
 
@@ -1193,29 +1291,55 @@ class MainWindow(QMainWindow):
                 self._start_linux_video(s, pw, ph, monitor=mon)
                 self._save_config()
                 return
-            self.video_window = VideoWallpaperWindow(
-                self.selected_path, muted=self.mute_checkbox.isChecked(),
-                volume=self.volume_slider.value() / 100.0,
-                auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
-                auto_pause_battery=self.pause_batt_checkbox.isChecked(),
-                monitor=mon,
-            )
-            self.video_window.failed.connect(self._on_video_failed)
-            if self.video_window.start():
+            # "All monitors" on 2+ screens: same video on each screen
+            # (first window carries audio, mirrors stay muted).
+            targets = screens.duplicate_targets(
+                self.monitor_choice, self.monitors)
+            started = 0
+            for i, target in enumerate(targets):
+                window = VideoWallpaperWindow(
+                    self.selected_path,
+                    muted=self.mute_checkbox.isChecked() if i == 0 else True,
+                    volume=self.volume_slider.value() / 100.0,
+                    auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
+                    auto_pause_battery=self.pause_batt_checkbox.isChecked(),
+                    monitor=target,
+                )
+                if i == 0:
+                    window.failed.connect(self._on_video_failed)
+                    self.video_window = window
+                else:
+                    window.failed.connect(self._on_mirror_failed)
+                if window.start():
+                    started += 1
+                    if i > 0:
+                        self.mirror_windows.append(window)
+                    continue
+                try:
+                    window.stop()
+                except Exception:
+                    pass
+                if i == 0:
+                    # Primary failed: same fatal path as single-monitor.
+                    self.video_window = None
+                    self.user_paused = False
+                    self._refresh_pause_ui()
+                    self.status_label.setText(
+                        s["vid_fail_m"].format(log=DEBUG_LOG))
+                    QMessageBox.warning(
+                        self, s["vid_fail_t"],
+                        s["vid_fail_m"].format(log=DEBUG_LOG),
+                    )
+                    return
+                debug_log(f"APPLY: mirror {i} failed to start, primary runs")
+            if self.video_window is not None:
+                self.user_paused = False
                 self.status_label.setText(s["vid_running"].format(w=pw, h=ph))
                 self.tray.showMessage(
                     s["app_name"], s["vid_started_msg"],
                     QSystemTrayIcon.MessageIcon.Information, 3000
                 )
-            else:
-                self.video_window.stop()
-                self.video_window = None
-                self.status_label.setText(s["vid_fail_m"].format(log=DEBUG_LOG))
-                QMessageBox.warning(
-                    self, s["vid_fail_t"],
-                    s["vid_fail_m"].format(log=DEBUG_LOG),
-                )
-                return
+                self._refresh_pause_ui()
         else:
             return
 
@@ -1230,16 +1354,74 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             self.video_window = None
+        try:
+            for w in self.mirror_windows:
+                try:
+                    w.stop()
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        self.mirror_windows = []
         if reason == "decode":
             self.status_label.setText(s["vid_decode_m"])
             QMessageBox.warning(self, s["vid_decode_t"], s["vid_decode_m"])
         else:
             self.status_label.setText(s["vid_fail_m"].format(log=DEBUG_LOG))
+        self.user_paused = False
+        self._refresh_pause_ui()
+
+    def _on_mirror_failed(self, reason: str):
+        """A mirror window died: drop just it, the primary keeps playing."""
+        debug_log(f"MIRROR FAILED: {reason}")
+        try:
+            sender = self.sender()
+            if sender is not None:
+                try:
+                    sender.stop()
+                except Exception:
+                    pass
+                self.mirror_windows = [
+                    w for w in self.mirror_windows if w is not sender]
+        except Exception:
+            pass
+
+    def _toggle_user_pause(self):
+        """Manual Pause/Resume: freeze the frame, keep canvas and config."""
+        try:
+            if self.video_window is None:
+                return
+            target = not self.user_paused
+            self.user_paused = target
+            try:
+                self.video_window.set_user_paused(target)
+                for w in list(self.mirror_windows):
+                    try:
+                        w.set_user_paused(target)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            self._refresh_pause_ui()
+        except Exception as e:
+            debug_log(f"PAUSE exception: {e!r}")
+
+    def _refresh_pause_ui(self):
+        """Pause button + tray texts follow state; disabled without video."""
+        try:
+            s = self.S()
+            running = self.video_window is not None
+            text = s["video_resume"] if self.user_paused else s["video_pause"]
+            self.pause_btn.setText(text)
+            self.pause_btn.setEnabled(running)
+            self.tray_pause_action.setText(text)
+            self.tray_pause_action.setEnabled(running)
+        except Exception:
+            pass
 
     def stop_wallpaper(self):
-        if self.video_window is not None:
-            self.video_window.stop()
-            self.video_window = None
+        self.user_paused = False
+        self._stop_all_video_windows()
         if self._is_windows:
             if self.original_wallpaper:
                 set_static_wallpaper(self.original_wallpaper)
@@ -1251,6 +1433,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 debug_log(f"RESTORE: backend restore error: {e!r}")
         self.status_label.setText(self.S()["restored"])
+        self._refresh_pause_ui()
 
     def closeEvent(self, event):
         s = self.S()
@@ -1337,9 +1520,55 @@ class MainWindow(QMainWindow):
             debug_log(f"UPDATE result exception: {e!r}")
 
     def quit_app(self):
-        if self.video_window is not None:
-            self.video_window.stop()
+        try:
+            if self.web_server is not None:
+                self.web_server.stop()
+        except Exception:
+            pass
+        self._stop_all_video_windows()
         QApplication.quit()
+
+    def start_web_library(self) -> str | None:
+        """Start the localhost library server. Returns its URL or None."""
+        try:
+            if self.web_server is not None:
+                return self.web_server.url
+            bridge = _WebBridge(self)
+            bridge.apply_requested.connect(self._on_web_apply)
+            bridge.stop_requested.connect(self.stop_wallpaper)
+            self._web_bridge = bridge
+            server = WebLibraryServer(
+                apply_fn=lambda p: bridge.apply_requested.emit(p) or True,
+                stop_fn=lambda: bridge.stop_requested.emit(),
+            )
+            if server.start():
+                self.web_server = server
+                debug_log(f"WEB: library at {server.url}")
+                return server.url
+        except Exception as e:
+            debug_log(f"WEB start failed: {e!r}")
+        self.web_server = None
+        return None
+
+    def _on_web_apply(self, path: str):
+        """Apply a wallpaper chosen in the web library (GUI thread)."""
+        try:
+            if path and os.path.exists(path):
+                self._on_file_chosen(path)
+                self.apply_wallpaper()
+        except Exception as e:
+            debug_log(f"WEB apply exception: {e!r}")
+
+    def open_library(self):
+        """Open the web library in the default browser."""
+        try:
+            url = self.start_web_library()
+            if url:
+                QDesktopServices.openUrl(QUrl(url))
+            else:
+                self.status_label.setText(self.S()["web_failed"])
+        except Exception as e:
+            debug_log(f"WEB open exception: {e!r}")
 
 
 def main():
@@ -1411,6 +1640,10 @@ def main():
             win.hide()
         except Exception:
             pass
+    try:
+        win.start_web_library()
+    except Exception:
+        pass
     try:
         win._schedule_update_check()
     except Exception:

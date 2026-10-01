@@ -1,6 +1,7 @@
 """Tests for wallmotion.screens - pure geometry + monitor enumeration."""
 
 from wallmotion.screens import (
+    duplicate_targets,
     get_physical_monitors,
     place_canvas,
     qt_monitors_to_physical,
@@ -50,6 +51,29 @@ class TestQtMonitorsToPhysical:
     def test_empty(self):
         assert qt_monitors_to_physical({}) == []
         assert qt_monitors_to_physical({"screens": []}) == []
+
+
+class TestDuplicateTargets:
+    MONS = [
+        {"index": 0, "x": 0, "y": 0, "w": 1920, "h": 1080, "primary": False},
+        {"index": 1, "x": 1920, "y": 0, "w": 1920, "h": 1080, "primary": True},
+    ]
+
+    def test_single_monitor_span(self):
+        assert duplicate_targets("all", []) == [None]
+        one = [dict(self.MONS[0])]
+        assert duplicate_targets("all", one) == [None]
+
+    def test_multi_monitor_primary_first(self):
+        targets = duplicate_targets("all", self.MONS)
+        assert [t["index"] for t in targets] == [1, 0]
+
+    def test_specific_monitor(self):
+        targets = duplicate_targets(0, self.MONS)
+        assert targets == [dict(self.MONS[0])]
+
+    def test_unknown_index_falls_back(self):
+        assert duplicate_targets(99, self.MONS) == [None]
 
 
 class TestPhysicalMonitors:

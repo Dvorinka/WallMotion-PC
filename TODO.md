@@ -52,10 +52,9 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 
 ## P3 — Bigger ideas
 
-- [ ] **Web UI for the library** — localhost panel (FastAPI or a simple
-  `http.server` backend + static page): grid of downloaded videos with
-  thumbnails (ffmpeg `-frames:v 1`), one-click apply, settings, status.
-  Useful for remote control and for a headless/Tray-free mode.
+- [x] **Web UI for the library** — localhost panel (stdlib `http.server`):
+  grid of downloaded videos with ffmpeg thumbnails, one-click apply,
+  stop, status. Tray action opens it in the browser.
 - [ ] **Wallpaper workshop / sharing platform** — Wallpaper Engine's killer
   feature. Suggested phases: (1) local library folder UI, (2) a plain JSON
   index on GitHub Pages listing community wallpapers + preview thumbnails,

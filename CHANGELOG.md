@@ -47,6 +47,44 @@ Full report: [docs/LINUX_TESTING.md](docs/LINUX_TESTING.md).
   file is applied directly (all Linux renderers scale natively).
 - `_quiet_ffmpeg` now handles Linux `libavutil.so.N` library names.
 
+## [1.0.9] - 2026-10-01
+
+### Added
+- Duplicate video wallpaper: "All monitors" on 2+ screens plays the
+  same video fullscreen on each screen (audio from the primary,
+  mirrors muted).
+- Pause/Resume button (window + tray): freezes the video frame without
+  touching the wallpaper; autopause never overrides a manual pause.
+
+### Fixed
+- Frame stride guard: decoder frames with padded scanlines are
+  repacked before GDI painting (used to paint sheared bands).
+
+## [1.0.8] - 2026-10-01
+
+### Added
+- Web library: localhost panel (`http://127.0.0.1:8765/`) with a grid
+  of downloaded videos (ffmpeg thumbnails) and images, one-click
+  apply and stop; tray action opens it in the browser.
+
+### Fixed
+- Light theme left the window background dark; content background now
+  follows the theme. Language/theme toggles moved into the title row.
+
+## [1.0.7] - 2026-10-01
+
+### Fixed
+- Main window is scrollable/resizable instead of fixed size (widgets
+  overlapped on larger font scaling, Stop button unreachable).
+- YouTube button text "Download & set" rendered as "Download set"
+  (`&` is a Qt mnemonic); now "Download and set".
+
+## [1.0.6] - 2026-10-01
+
+### Changed
+- Language and theme dropdowns replaced by toggle buttons (EN/CZ
+  and painted sun/moon icon).
+
 ## [1.0.5] - 2026-10-01
 
 Linux support v1, CLI, AppImage packaging and all P1/P2 features below.
@@ -108,6 +146,10 @@ First stable release.
   debug log at `%TEMP%\live_wallpaper_debug.log`.
 - Standalone `WallMotion.exe` (PyInstaller, ~65 MB).
 
-[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.9...HEAD
+[1.0.9]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.9
+[1.0.8]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.8
+[1.0.7]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.7
+[1.0.6]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.5
 [1.0.0]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.0

@@ -10,6 +10,11 @@ from wallmotion.paths import log_path
 
 DEBUG_LOG = str(log_path())
 
+# Supported media extensions (shared by wallpaper picker, web library...).
+# Kept here (Qt-free) so headless modules can use them without QtGui.
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif"}
+VIDEO_EXTS = {".mp4", ".avi", ".mkv", ".mov", ".wmv", ".webm"}
+
 
 def debug_log(msg: str) -> None:
     try:

@@ -74,6 +74,32 @@ def qt_monitors_to_physical(screen_info: dict) -> list:
     return monitors
 
 
+def duplicate_targets(choice, monitors: list) -> list:
+    """Canvas targets for one monitor vs all monitors. Pure, unit-tested.
+
+    choice: "all" or a monitor index. monitors: [{index, ..., primary}].
+    Returns [None] (legacy whole-desktop canvas), [monitor] (one canvas),
+    or one dict per monitor with the primary first (duplicate playback:
+    the first window carries audio, mirrors stay muted).
+    """
+    try:
+        mons = list(monitors or [])
+        if choice != "all":
+            for m in mons:
+                try:
+                    if m.get("index") == choice:
+                        return [dict(m)]
+                except Exception:
+                    continue
+            return [None]
+        if len(mons) > 1:
+            mons.sort(key=lambda m: 0 if m.get("primary") else 1)
+            return [dict(m) for m in mons]
+        return [None]
+    except Exception:
+        return [None]
+
+
 def place_canvas(parent_rect: tuple, monitor: dict | None) -> tuple:
     """Compute (x, y, w, h) canvas relative to the parent window. Pure function for tests.
 
