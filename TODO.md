@@ -30,9 +30,10 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   30+ headless tests. GNOME-Wayland video stays a documented gap (Hanabi).
 - [~] **Linux hardware testing matrix** — verify image + video + IPC on
   real sessions, record results in `docs/` and fix fallout.
-  GNOME-Wayland verified (image apply/restore, CLI, IPC-socket,
-  bundled renderers) — see `docs/LINUX_TESTING.md`. Still open:
-  X11, Sway/Hyprland, KDE-Wayland on hardware.
+  GNOME-Wayland verified on the real desktop (image apply/restore,
+  CLI, IPC socket, bundled renderers); X11 + wlroots video verified in
+  nested compositors (Xephyr, sway) — see `docs/LINUX_TESTING.md`.
+  Still open: bare-metal X11, KDE-Wayland, Sway/Hyprland logins.
 - [x] **Linux per-monitor outputs** — X11 video targets the chosen monitor
   via `xwinwrap -g WxH+X+Y` (Qt-based monitor list where WinAPI is absent);
   mpvpaper stays all-outputs `*` (output names need hardware enumeration).

@@ -278,6 +278,41 @@ class TestSessionTool:
         assert all(c[0] == "/sys/bin/gsettings" for c in calls)
 
 
+class TestIpcSocket:
+    def test_clear_unlinks_stale(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        stale = tmp_path / L.MPV_IPC_SOCKET_NAME
+        stale.write_text("", encoding="utf-8")
+        L.clear_ipc_socket()
+        assert not stale.exists()
+
+    def test_clear_missing_ok(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        L.clear_ipc_socket()  # must not raise
+
+    def test_spawn_clears_socket(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        stale = tmp_path / L.MPV_IPC_SOCKET_NAME
+        stale.write_text("", encoding="utf-8")
+
+        class FakeProc:
+            pid = 1
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+
+        spawned = []
+        monkeypatch.setattr(
+            L.subprocess, "Popen",
+            lambda cmd, **kw: spawned.append(cmd) or FakeProc())
+        assert L.X11Backend()._spawn(["true"]) is True
+        assert spawned == [["true"]]
+        assert not stale.exists()
+
+
 class TestRestore:
     def test_gnome_snapshot_and_restore(self, monkeypatch):
         calls = []

@@ -82,6 +82,7 @@ stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, res
 | 6 | `_quiet_ffmpeg` knew only `.dll` names → no-op on Linux | derived `libavutil.so.N` and `libavutil-N.dll` variants added |
 | 7 | Fullscreen auto-pause sensor Windows-only | X11 probe via `xprop`/`xwininfo`/`xrandr` (wm-independent, no deps on X11 sessions); Wayland keeps no-op (no compositor-neutral query) |
 | 8 | Renderers had to be installed manually — AppImage carried none | CI builds `xwinwrap`/`mpvpaper`/`swww` from pinned sources and packages `mpv`+`feh` via linuxdeploy; backend resolves bundled dir → `~/.local/share/wallmotion/bin` → `$PATH`, and exports the merged PATH to spawned tools (xwinwrap needs it to find mpv) |
+| 9 | A stale `wallmotion-mpv.sock` left by a killed player blocked the next spawn's IPC (`ECONNREFUSED` on connect) | `clear_ipc_socket()` unlinks it inside `_spawn` before the new process starts |
 
 ## Known limitations (unchanged)
 
@@ -99,9 +100,23 @@ stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, res
 | Session | Image | Video | Tested on hardware? |
 |---|---|---|---|
 | GNOME Wayland | `gsettings` ✓ | Hanabi notice ✓ | yes — this pass |
-| X11 | `feh` | `xwinwrap`+`mpv` | backend + tool-path covered by tests; pending hardware |
-| KDE Wayland | `plasma-apply-wallpaperimage` | `mpvpaper` | pending |
-| Sway/Hyprland/wlroots | `swww` | `mpvpaper` | pending |
+| X11 | `feh` ✓ | `xwinwrap`+`mpv` ✓ | yes — nested `Xephyr :99`, app itself spawned the bundled tools; mpv IPC (play/pause/mute/volume) verified; `--stop` kills the process group |
+| KDE Wayland | `plasma-apply-wallpaperimage` | `mpvpaper` | pending (no KDE session) |
+| Sway/Hyprland/wlroots | `swww` ✓ | `mpvpaper` ✓ | yes — nested `sway` (WLR_BACKENDS=wayland): `swww img`/`query` round-trips, `mpvpaper '*'` plays all outputs, mute/unmute/pause via app IPC socket; `--stop` kills mpvpaper and restores the image snapshot |
+
+Notes on nested-compositor testing:
+
+- `Xephyr`/`sway` nested windows let the app's real backend selection run
+  unchanged: env overrides (`DISPLAY=:99 XDG_SESSION_TYPE=x11`, resp.
+  `WAYLAND_DISPLAY=wayland-1 XDG_CURRENT_DESKTOP=sway`) picked the `x11`
+  resp. `wlroots` backends, and the spawned tools were the bundled ones.
+- Weston can NOT host this test: it advertises no
+  `zwlr_layer_shell_v1` global, so `mpvpaper`/`swww-daemon` refuse
+  ("Missing a required Wayland interface"). That is a weston limitation,
+  not a packaging defect — sway/wlroots works.
+- During the pass a stale `wallmotion-mpv.sock` left by a killed
+  instance blocked the next spawn's IPC (`ECONNREFUSED`). `_spawn` now
+  unlinks a leftover socket first (`clear_ipc_socket()`).
 
 ## Reproducing
 

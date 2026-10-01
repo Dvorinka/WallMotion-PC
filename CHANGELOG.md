@@ -30,6 +30,9 @@ Full report: [docs/LINUX_TESTING.md](docs/LINUX_TESTING.md).
   silently never reached GNOME's dconf store.
 - `debug.log` is no longer truncated by every CLI invocation; it
   accumulates across forwarded commands.
+- A stale `wallmotion-mpv.sock` left behind by a killed player no
+  longer dead-ends the next video's IPC channel; it is unlinked before
+  the new spawn.
 - Muted video start on Linux used `no-audio`, permanently dropping the
   audio stream; now uses `mute=yes` so IPC unmute works.
 - Static images on Linux were re-encoded to a BMP in `/tmp`; the source

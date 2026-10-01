@@ -223,6 +223,19 @@ def ipc_socket_path() -> str:
     return os.path.join(base, MPV_IPC_SOCKET_NAME)
 
 
+def clear_ipc_socket() -> None:
+    """Unlink a leftover mpv IPC socket before a new spawn.
+
+    mpv removes the socket on clean exit, but a killed player (SIGKILL,
+    dead parent, crashed compositor) leaves the file behind and the
+    next spawn can silently lose its IPC channel.
+    """
+    try:
+        os.unlink(ipc_socket_path())
+    except Exception:
+        pass
+
+
 def mpvpaper_command(path: str, muted: bool, volume: float,
                      output: str = "*", ipc_socket: str | None = None) -> list:
     """mpvpaper on all outputs (*) or one named output (e.g. DP-1)."""
@@ -382,6 +395,7 @@ class LinuxProcessBackend:
 
     def _spawn(self, cmd: list) -> bool:
         self.stop()
+        clear_ipc_socket()
         try:
             self._proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
