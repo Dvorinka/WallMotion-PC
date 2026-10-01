@@ -112,7 +112,8 @@ Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Report bugs vi
 `%TEMP%\live_wallpaper_debug.log`. Planned work: [TODO.md](TODO.md);
 stack analysis and Linux plan: [docs/STACK_ANALYSIS.md](docs/STACK_ANALYSIS.md).
 Released under the [MIT license](LICENSE); the bundled ffmpeg binary keeps
-its own (L)GPL license.
+its own (L)GPL license, and the bundled Hanabi GNOME Shell extension stays
+GPL-3.0 (`assets/hanabi-extension-LICENSE.txt`).
 
 ---
 
@@ -221,4 +222,5 @@ Příspěvky vítány — viz [CONTRIBUTING.md](CONTRIBUTING.md). Chyby hlas do
 `%TEMP%\live_wallpaper_debug.log`. Plán práce: [TODO.md](TODO.md);
 analýza stacku a Linux plán: [docs/STACK_ANALYSIS.md](docs/STACK_ANALYSIS.md).
 Kód je pod [licencí MIT](LICENSE); přibalená ffmpeg binárka si nese vlastní
-(L)GPL licenci.
+(L)GPL licenci a přibalené rozšíření Hanabi pro GNOME Shell zůstává pod
+GPL-3.0 (`assets/hanabi-extension-LICENSE.txt`).

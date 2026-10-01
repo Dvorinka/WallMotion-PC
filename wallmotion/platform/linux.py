@@ -261,7 +261,9 @@ def xwinwrap_command(path: str, muted: bool, volume: float,
                      ipc_socket: str | None = None,
                      geometry: str | None = None) -> list:
     """xwinwrap fullscreen (-fs) or on one monitor (-g WxH+X+Y), plus mpv
-    (WID is substituted by xwinwrap)."""
+    (WID is substituted by xwinwrap). -b -ni -nf keep the wallpaper
+    below the desktop, input-transparent and unfocusable - without -b
+    the window renders on top of the icons (r00tdaemon fork README)."""
     mpv_cmd = ["mpv", "-wid", "WID", "--loop-file=inf", "--no-osc",
                "--no-input-default-bindings"]
     if muted:
@@ -276,8 +278,10 @@ def xwinwrap_command(path: str, muted: bool, volume: float,
         mpv_cmd.append(f"--input-ipc-server={ipc_socket}")
     mpv_cmd.append(path)
     if geometry:
-        return ["xwinwrap", "-g", geometry, "-ov", "-fdt", "--"] + mpv_cmd
-    return ["xwinwrap", "-fs", "-ov", "-fdt", "--"] + mpv_cmd
+        return ["xwinwrap", "-g", geometry, "-b", "-ni", "-nf", "-ov",
+                "-fdt", "--"] + mpv_cmd
+    return ["xwinwrap", "-fs", "-b", "-ni", "-nf", "-ov", "-fdt",
+            "--"] + mpv_cmd
 
 
 def mpv_ipc_message(prop: str, value) -> bytes:
@@ -425,8 +429,13 @@ def hanabi_install(timeout: int = 180) -> tuple:
             return (True, (out or "").strip())
     try:
         import zipfile
+        dest = os.path.realpath(_hanabi_dir())
         with zipfile.ZipFile(zpath) as z:
-            z.extractall(_hanabi_dir())
+            for member in z.namelist():
+                target = os.path.realpath(os.path.join(dest, member))
+                if not target.startswith(dest + os.sep):
+                    return (False, f"unsafe zip member: {member}")
+            z.extractall(dest)
         return (True, "")
     except Exception as e:
         return (False, repr(e))

@@ -100,6 +100,7 @@ stop → 'file:///usr/share/backgrounds/osselo-Ask_a_friend.jpg'    (custom, res
 | 7 | Fullscreen auto-pause sensor Windows-only | X11 probe via `xprop`/`xwininfo`/`xrandr` (wm-independent, no deps on X11 sessions); Wayland keeps no-op (no compositor-neutral query) |
 | 8 | Renderers had to be installed manually — AppImage carried none | CI builds `xwinwrap`/`mpvpaper`/`swww` from pinned sources and packages `mpv`+`feh` via linuxdeploy; backend resolves bundled dir → `~/.local/share/wallmotion/bin` → `$PATH`, and exports the merged PATH to spawned tools (xwinwrap needs it to find mpv) |
 | 9 | A stale `wallmotion-mpv.sock` left by a killed player blocked the next spawn's IPC (`ECONNREFUSED` on connect) | `clear_ipc_socket()` unlinks it inside `_spawn` before the new process starts |
+| 10 | `xwinwrap` window rendered **on top** of the desktop (opaque overlay covering icons) — the spawn carried no stacking hint | `-b` (below) added to `xwinwrap_command`, plus `-ni` `-nf` (ignore input / no focus); reported via issue, pending the reporter's hardware confirmation |
 
 ## Known limitations (unchanged)
 

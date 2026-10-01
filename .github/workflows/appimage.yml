@@ -32,7 +32,12 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt pyinstaller
 
       - name: Write version file
-        run: echo "${GITHUB_REF_NAME:-dev}" > assets/VERSION
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "dev-${GITHUB_SHA::7}" > assets/VERSION
+          else
+            echo "${GITHUB_REF_NAME}" > assets/VERSION
+          fi
 
       - name: Install Qt runtime + renderer build deps
         run: >-
@@ -48,8 +53,9 @@ jobs:
           QT_QPA_PLATFORM=offscreen python -m pytest tests/test_linux.py -q
 
       - name: Build xwinwrap (X11 video renderer)
+        # ujjwal96/xwinwrap redirects to r00tdaemon - pin the canonical URL.
         run: |
-          git clone --depth 1 https://github.com/ujjwal96/xwinwrap /tmp/xwinwrap
+          git clone --depth 1 https://github.com/r00tdaemon/xwinwrap /tmp/xwinwrap
           make -C /tmp/xwinwrap
 
       - name: Build mpvpaper (Wayland video renderer)
@@ -96,3 +102,16 @@ jobs:
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
           ARCH=x86_64 ./appimagetool AppDir WallMotion-x86_64.AppImage
+
+      - name: Upload AppImage artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WallMotion-x86_64.AppImage
+          path: WallMotion-x86_64.AppImage
+
+      - name: Attach AppImage to GitHub Release (tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: WallMotion-x86_64.AppImage

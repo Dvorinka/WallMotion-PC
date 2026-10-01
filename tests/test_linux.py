@@ -2,6 +2,9 @@
 
 import json
 import os
+import sys
+
+import pytest
 
 from wallmotion.platform import linux as L
 
@@ -111,7 +114,10 @@ class TestCommands:
 
     def test_xwinwrap_fullscreen_wid_placeholder(self):
         cmd = L.xwinwrap_command("/v.mp4", True, 0.3)
-        assert cmd[:4] == ["xwinwrap", "-fs", "-ov", "-fdt"]
+        # -b (below) keeps the window under the desktop icons; -ni -nf
+        # make it input-transparent and unfocusable.
+        assert cmd[:7] == ["xwinwrap", "-fs", "-b", "-ni", "-nf",
+                           "-ov", "-fdt"]
         assert "--" in cmd
         assert "WID" in cmd
         assert cmd[cmd.index("--") + 1] == "mpv"
@@ -220,6 +226,9 @@ class TestBundledTools:
         env = L.tool_env()
         assert env["PATH"].split(os.pathsep)[0] == str(bindir)
 
+    @pytest.mark.skipif(sys.platform == "win32",
+                        reason="extensionless `mpv` never resolves through "
+                               "PATHEXT; bundled-tool lookup is POSIX-only")
     def test_which_finds_bundled_tool(self, tmp_path, monkeypatch):
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
         bindir = tmp_path / "wallmotion" / "bin"
@@ -383,6 +392,24 @@ class TestHanabi:
         assert calls[0][:2] == ["/usr/bin/gnome-extensions", "install"]
         assert "--force" in calls[0]
 
+    def test_install_fallback_rejects_zip_traversal(self, monkeypatch,
+                                                    tmp_path):
+        import io
+        import zipfile
+        monkeypatch.setattr(L, "session_tool", lambda name: None)
+        monkeypatch.setattr(L, "_hanabi_dir", lambda: str(tmp_path / "ext"))
+        import wallmotion.utils
+        monkeypatch.setattr(wallmotion.utils, "_asset_path",
+                            lambda name: str(tmp_path / name))
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("../evil.txt", "x")
+        (tmp_path / L.HANABI_ZIP).write_bytes(buf.getvalue())
+        ok, err = L.hanabi_install()
+        assert not ok
+        assert "evil.txt" in err
+        assert not (tmp_path / "evil.txt").exists()
+
     def test_install_missing_zip(self, monkeypatch, tmp_path):
         monkeypatch.setattr(L, "session_tool", lambda name: None)
         import wallmotion.utils
@@ -534,6 +561,9 @@ class TestRestore:
         L.GnomeBackend().restore()
         assert calls == []
 
+    @pytest.mark.skipif(sys.platform == "win32",
+                        reason="POSIX-only: expanduser('~') ignores HOME on "
+                               "Windows and restore replays via /bin/sh")
     def test_x11_fehbg_snapshot(self, tmp_path, monkeypatch):
         fehbg = tmp_path / ".fehbg"
         fehbg.write_text("#!/bin/sh\nfeh --bg-fill '/old.png'\n",
