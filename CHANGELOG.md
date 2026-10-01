@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Web library: localhost panel (`http://127.0.0.1:8765/`) with a grid
+  of downloaded videos (ffmpeg thumbnails) and images, one-click
+  apply and stop; tray action opens it in the browser.
+
 ## [1.0.7] - 2026-10-01
 
 ### Fixed

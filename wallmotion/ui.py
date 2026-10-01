@@ -7,10 +7,18 @@ import math
 import os
 import sys
 
-from PySide6.QtCore import QLoggingCategory, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QLoggingCategory,
+    QObject,
+    Qt,
+    QTimer,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QDesktopServices,
     QDragEnterEvent,
     QDropEvent,
     QIcon,
@@ -71,6 +79,7 @@ from wallmotion.wallpaper import (
     get_current_wallpaper,
     set_static_wallpaper,
 )
+from wallmotion.webui import WebLibraryServer
 from wallmotion.youtube import (
     YT_DIR,
     DownloadWorker,
@@ -176,6 +185,13 @@ class DropZone(QFrame):
         self.clicked.emit()
 
 
+class _WebBridge(QObject):
+    """Relays web-library actions to the GUI thread via signals."""
+
+    apply_requested = Signal(str)
+    stop_requested = Signal()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -218,6 +234,8 @@ class MainWindow(QMainWindow):
         self._update_last_check = 0.0
         self._update_last_seen = ""
         self._volumes = {}
+        self.web_server = None
+        self._web_bridge = None
         self.rotation = RotationQueue()
         self.rotation_enabled = False
         self.rotation_interval = INTERVALS[1]
@@ -444,9 +462,12 @@ class MainWindow(QMainWindow):
         self.tray_update_action = QAction("Zkontrolovat aktualizace", self)
         self.tray_update_action.triggered.connect(
             lambda: self._check_updates(force=True))
+        self.tray_library_action = QAction("Otevřít knihovnu", self)
+        self.tray_library_action.triggered.connect(self.open_library)
         self.tray_quit_action = QAction("Ukončit", self)
         self.tray_quit_action.triggered.connect(self.quit_app)
         menu.addAction(self.tray_show_action)
+        menu.addAction(self.tray_library_action)
         menu.addAction(self.tray_update_action)
         menu.addAction(self.tray_quit_action)
         self.tray.setContextMenu(menu)
@@ -718,6 +739,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(s["ready"])
         try:
             self.tray_show_action.setText(s["open_tray"])
+            self.tray_library_action.setText(s["tray_library"])
             self.tray_update_action.setText(s["tray_check_update"])
             self.tray_quit_action.setText(s["quit_tray"])
         except Exception:
@@ -1314,9 +1336,56 @@ class MainWindow(QMainWindow):
             debug_log(f"UPDATE result exception: {e!r}")
 
     def quit_app(self):
+        try:
+            if self.web_server is not None:
+                self.web_server.stop()
+        except Exception:
+            pass
         if self.video_window is not None:
             self.video_window.stop()
         QApplication.quit()
+
+    def start_web_library(self) -> str | None:
+        """Start the localhost library server. Returns its URL or None."""
+        try:
+            if self.web_server is not None:
+                return self.web_server.url
+            bridge = _WebBridge(self)
+            bridge.apply_requested.connect(self._on_web_apply)
+            bridge.stop_requested.connect(self.stop_wallpaper)
+            self._web_bridge = bridge
+            server = WebLibraryServer(
+                apply_fn=lambda p: bridge.apply_requested.emit(p) or True,
+                stop_fn=lambda: bridge.stop_requested.emit(),
+            )
+            if server.start():
+                self.web_server = server
+                debug_log(f"WEB: library at {server.url}")
+                return server.url
+        except Exception as e:
+            debug_log(f"WEB start failed: {e!r}")
+        self.web_server = None
+        return None
+
+    def _on_web_apply(self, path: str):
+        """Apply a wallpaper chosen in the web library (GUI thread)."""
+        try:
+            if path and os.path.exists(path):
+                self._on_file_chosen(path)
+                self.apply_wallpaper()
+        except Exception as e:
+            debug_log(f"WEB apply exception: {e!r}")
+
+    def open_library(self):
+        """Open the web library in the default browser."""
+        try:
+            url = self.start_web_library()
+            if url:
+                QDesktopServices.openUrl(QUrl(url))
+            else:
+                self.status_label.setText(self.S()["web_failed"])
+        except Exception as e:
+            debug_log(f"WEB open exception: {e!r}")
 
 
 def main():
@@ -1385,6 +1454,10 @@ def main():
             win.hide()
         except Exception:
             pass
+    try:
+        win.start_web_library()
+    except Exception:
+        pass
     try:
         win._schedule_update_check()
     except Exception:
