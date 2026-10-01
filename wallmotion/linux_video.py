@@ -27,12 +27,14 @@ class LinuxVideoWallpaper(QObject):
 
     def __init__(self, backend, video_path: str, muted: bool = True,
                  volume: float = 0.3, auto_pause_fullscreen: bool = True,
-                 auto_pause_battery: bool = False, parent=None):
+                 auto_pause_battery: bool = False, monitor: dict | None = None,
+                 parent=None):
         super().__init__(parent)
         self._backend = backend
         self.video_path = video_path
         self._muted = bool(muted)
         self._volume = max(0.0, min(1.0, float(volume)))
+        self._monitor = dict(monitor) if monitor else None
         self._pause_on_fullscreen = bool(auto_pause_fullscreen)
         self._pause_on_battery = bool(auto_pause_battery)
         self._timer = None
@@ -90,8 +92,13 @@ class LinuxVideoWallpaper(QObject):
         debug_log(f"START(linux): path={self.video_path} "
                   f"backend={getattr(self._backend, 'name', '?')}")
         try:
+            geometry = None
+            if self._monitor and getattr(self._backend, "name", "") == "x11":
+                from wallmotion.platform.linux import xwinwrap_geometry
+                geometry = xwinwrap_geometry(self._monitor)
             ok = self._backend.set_video(
-                self.video_path, self._muted, self._volume)
+                self.video_path, self._muted, self._volume,
+                geometry=geometry)
         except Exception as e:
             debug_log(f"START(linux): backend exception: {e!r}")
             return False

@@ -111,6 +111,17 @@ class TestCommands:
         assert "WID" in cmd
         assert cmd[cmd.index("--") + 1] == "mpv"
 
+    def test_xwinwrap_geometry(self):
+        assert L.xwinwrap_geometry(None) is None
+        assert L.xwinwrap_geometry({}) is None
+        mon = {"x": 1920, "y": 0, "w": 1920, "h": 1080}
+        assert L.xwinwrap_geometry(mon) == "1920x1080+1920+0"
+        cmd = L.xwinwrap_command("/v.mp4", False, 0.5,
+                                 geometry="1920x1080+1920+0")
+        assert "-g" in cmd
+        assert "1920x1080+1920+0" in cmd
+        assert "-fs" not in cmd
+
 
 class TestIpc:
     def test_message_format(self):

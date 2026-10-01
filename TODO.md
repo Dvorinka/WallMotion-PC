@@ -32,9 +32,9 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
   real sessions (X11 VM, Sway/Hyprland, KDE-Wayland, GNOME-Wayland image),
   record results in `docs/` and fix fallout. Code is landed but untested
   on hardware.
-- [ ] **Linux per-monitor outputs** — map the UI monitor choice to mpvpaper
-  output names / `xwinwrap -g WxH+X+Y` (spec §10; v1 uses all-outputs `*`
-  and fullscreen).
+- [x] **Linux per-monitor outputs** — X11 video targets the chosen monitor
+  via `xwinwrap -g WxH+X+Y` (Qt-based monitor list where WinAPI is absent);
+  mpvpaper stays all-outputs `*` (output names need hardware enumeration).
 - [x] **YouTube playlist support.** Currently `noplaylist: True` in
   `DownloadWorker`. Plan: accept playlist URLs, fetch `extract_flat` entries,
   show a picker dialog, download selected item(s). Keep the 500 MB cap and

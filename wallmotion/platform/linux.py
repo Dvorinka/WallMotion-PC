@@ -146,9 +146,23 @@ def mpvpaper_command(path: str, muted: bool, volume: float,
     return ["mpvpaper", "-o", opts, output, path]
 
 
+def xwinwrap_geometry(monitor: dict | None) -> str | None:
+    """'WxH+X+Y' for one monitor, or None for fullscreen. Pure."""
+    try:
+        if not monitor:
+            return None
+        w, h = max(1, int(monitor["w"])), max(1, int(monitor["h"]))
+        x, y = int(monitor["x"]), int(monitor["y"])
+        return f"{w}x{h}+{x}+{y}"
+    except Exception:
+        return None
+
+
 def xwinwrap_command(path: str, muted: bool, volume: float,
-                     ipc_socket: str | None = None) -> list:
-    """xwinwrap fullscreen + mpv (WID is substituted by xwinwrap)."""
+                     ipc_socket: str | None = None,
+                     geometry: str | None = None) -> list:
+    """xwinwrap fullscreen (-fs) or on one monitor (-g WxH+X+Y), plus mpv
+    (WID is substituted by xwinwrap)."""
     mpv_cmd = ["mpv", "-wid", "WID", "--loop-file=inf", "--no-osc",
                "--no-input-default-bindings"]
     if muted:
@@ -162,6 +176,8 @@ def xwinwrap_command(path: str, muted: bool, volume: float,
     if ipc_socket:
         mpv_cmd.append(f"--input-ipc-server={ipc_socket}")
     mpv_cmd.append(path)
+    if geometry:
+        return ["xwinwrap", "-g", geometry, "-ov", "-fdt", "--"] + mpv_cmd
     return ["xwinwrap", "-fs", "-ov", "-fdt", "--"] + mpv_cmd
 
 
@@ -324,11 +340,13 @@ class X11Backend(LinuxProcessBackend):
         ok, _out, _err = run_command(feh_command(path))
         return ok
 
-    def set_video(self, path: str, muted: bool, volume: float) -> bool:
+    def set_video(self, path: str, muted: bool, volume: float,
+                  geometry: str | None = None) -> bool:
         if not (_which("xwinwrap") and _which("mpv")):
             return False
         return self._spawn(xwinwrap_command(path, muted, volume,
-                                           ipc_socket=ipc_socket_path()))
+                                           ipc_socket=ipc_socket_path(),
+                                           geometry=geometry))
 
     def set_muted(self, muted: bool) -> None:
         mpv_ipc_set(ipc_socket_path(), "mute", bool(muted))
@@ -355,7 +373,11 @@ class WlrootsBackend(LinuxProcessBackend):
         ok, _out, _err = run_command(swww_command(path))
         return ok
 
-    def set_video(self, path: str, muted: bool, volume: float) -> bool:
+    def set_video(self, path: str, muted: bool, volume: float,
+                  geometry: str | None = None) -> bool:
+        # mpvpaper always covers all outputs (*) in v1; per-output names
+        # need wlr enumeration on real hardware (see TODO). Geometry is
+        # accepted for API parity and ignored.
         if not _which("mpvpaper"):
             return False
         return self._spawn(mpvpaper_command(path, muted, volume,
@@ -404,7 +426,8 @@ class GnomeBackend(LinuxProcessBackend):
                 return False
         return True
 
-    def set_video(self, path: str, muted: bool, volume: float) -> bool:
+    def set_video(self, path: str, muted: bool, volume: float,
+                  geometry: str | None = None) -> bool:
         return False
 
     def set_paused(self, paused: bool) -> None:

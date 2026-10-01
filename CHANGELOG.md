@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live volume/mute/pause over mpv JSON IPC, sysfs battery sensor,
   missing-tool messages in the UI. GNOME-Wayland video remains
   unsupported (Hanabi extension needed). Not yet tested on hardware.
+- Linux per-monitor video: chosen monitor drives `xwinwrap -g WxH+X+Y`
+  on X11 (monitor list from Qt data); mpvpaper stays all-outputs.
 - CLI: `wallmotion --set FILE --stop --mute/--unmute --volume N`
   with single-instance forwarding to the running app.
 - Update check: weekly GitHub Releases poll with tray notice,

@@ -51,6 +51,29 @@ def get_physical_monitors() -> list:
     return monitors
 
 
+def qt_monitors_to_physical(screen_info: dict) -> list:
+    """Build [{index, x, y, w, h, primary}] from Qt measure_screens() data.
+
+    Sizes are physical pixels; offsets reuse Qt logical coordinates, which
+    match physical pixels at 100% scaling (the common X11 case). Used on
+    Linux where EnumDisplayMonitors does not exist. Pure, unit-tested.
+    """
+    monitors = []
+    try:
+        for i, s in enumerate(screen_info.get("screens", [])):
+            monitors.append({
+                "index": i,
+                "x": int(s.get("x", 0)),
+                "y": int(s.get("y", 0)),
+                "w": max(1, int(s.get("physical_width", 0))),
+                "h": max(1, int(s.get("physical_height", 0))),
+                "primary": bool(s.get("primary", i == 0)),
+            })
+    except Exception:
+        pass
+    return monitors
+
+
 def place_canvas(parent_rect: tuple, monitor: dict | None) -> tuple:
     """Compute (x, y, w, h) canvas relative to the parent window. Pure function for tests.
 

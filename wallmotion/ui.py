@@ -184,8 +184,9 @@ class MainWindow(QMainWindow):
         except Exception:
             self.original_wallpaper = ""  # non-Windows: no wallpaper to restore
         self.screen_info = screens.measure_screens()
-        self.monitors = screens.get_physical_monitors()
+        self.monitors = []
         self.monitor_choice = "all"  # "all" or physical monitor index
+        self._detect_monitors()
         # Platform backend (Linux: session renderer; None = unsupported).
         self._is_windows = sys.platform == "win32"
         self._linux_backend = None
@@ -853,7 +854,7 @@ class MainWindow(QMainWindow):
                 self._linux_backend = None
         return self._linux_backend
 
-    def _start_linux_video(self, s, pw, ph):
+    def _start_linux_video(self, s, pw, ph, monitor=None):
         """Video wallpaper on Linux via the session backend."""
         from wallmotion.platform.linux import describe_session
         backend = self._refresh_linux_backend()
@@ -871,6 +872,7 @@ class MainWindow(QMainWindow):
             volume=self.volume_slider.value() / 100.0,
             auto_pause_fullscreen=self.pause_fs_checkbox.isChecked(),
             auto_pause_battery=self.pause_batt_checkbox.isChecked(),
+            monitor=monitor,
         )
         self.video_window.failed.connect(self._on_video_failed)
         if self.video_window.start():
@@ -992,9 +994,22 @@ class MainWindow(QMainWindow):
                 s["screen_multi"].format(n=len(screens_info), parts=parts, w=pw, h=ph)
             )
 
+    def _detect_monitors(self):
+        """Physical monitor list: WinAPI on Windows, Qt data on Linux."""
+        try:
+            mons = screens.get_physical_monitors()
+        except Exception:
+            mons = []
+        if not mons:
+            try:
+                mons = screens.qt_monitors_to_physical(self.screen_info)
+            except Exception:
+                mons = []
+        self.monitors = mons
+
     def remeasure_screen(self):
         self.screen_info = screens.measure_screens()
-        self.monitors = screens.get_physical_monitors()
+        self._detect_monitors()
         self._refresh_screen_label()
         self._refresh_monitor_combo()
         pw, ph = self.screen_info.get("primary", (0, 0))
@@ -1088,7 +1103,7 @@ class MainWindow(QMainWindow):
 
         # Always fit the background to the measured screen size.
         self.screen_info = screens.measure_screens()
-        self.monitors = screens.get_physical_monitors()
+        self._detect_monitors()
         self._refresh_screen_label()
         self._refresh_monitor_combo()
         mon = self._selected_monitor()
@@ -1120,7 +1135,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(s["img_set"].format(w=pw, h=ph))
         elif ext in VIDEO_EXTS:
             if not self._is_windows:
-                self._start_linux_video(s, pw, ph)
+                self._start_linux_video(s, pw, ph, monitor=mon)
                 self._save_config()
                 return
             self.video_window = VideoWallpaperWindow(
