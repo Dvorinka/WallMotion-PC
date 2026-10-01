@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manual check in the tray menu.
 - Linux packaging: AppImage built in CI (`appimage.yml`) and attached
   to tag Releases next to the Windows .exe.
+- Per-wallpaper volume memory: mute/volume is remembered for each file
+  (last 100) and restored on selection.
 - Code comments translated to English (user-facing strings stay
   Czech/English in `locales/`).
 

@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from wallmotion import cli, instance, screens
+from wallmotion import cli, instance, screens, volumememory
 from wallmotion.config import CONFIG_PATH
 from wallmotion.i18n import (
     ACCENT,
@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self.update_worker = None
         self._update_last_check = 0.0
         self._update_last_seen = ""
+        self._volumes = {}
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -438,6 +439,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 try:
+                    volumes = cfg.get("volumes", {})
+                    self._volumes = dict(volumes) if isinstance(volumes, dict) else {}
+                except Exception:
+                    self._volumes = {}
+                try:
                     self.volume_slider.blockSignals(True)
                     self.volume_slider.setValue(int(cfg.get("volume", 30)))
                     self.volume_slider.blockSignals(False)
@@ -448,6 +454,8 @@ class MainWindow(QMainWindow):
                 if path and os.path.exists(path):
                     self.selected_path = path
                     self.drop_zone.set_file(path)
+                if self.selected_path:
+                    self._apply_volume_memory(self.selected_path)
             except Exception:
                 pass
         # set combo boxes without emitting signals
@@ -463,6 +471,15 @@ class MainWindow(QMainWindow):
 
     def _save_config(self):
         try:
+            try:
+                if self.selected_path:
+                    self._volumes = volumememory.remember(
+                        self._volumes, self.selected_path,
+                        self.volume_slider.value(),
+                        self.mute_checkbox.isChecked(),
+                    )
+            except Exception:
+                pass
             os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump({
@@ -476,7 +493,24 @@ class MainWindow(QMainWindow):
                     "monitor": self.monitor_choice,
                     "update_last_check": self._update_last_check,
                     "update_last_seen": self._update_last_seen,
+                    "volumes": self._volumes,
                 }, f)
+        except Exception:
+            pass
+
+    def _apply_volume_memory(self, path: str) -> None:
+        """Restore remembered mute/volume for a file, if any."""
+        try:
+            entry = volumememory.lookup(self._volumes, path)
+            if not entry:
+                return
+            self.mute_checkbox.blockSignals(True)
+            self.mute_checkbox.setChecked(entry["muted"])
+            self.mute_checkbox.blockSignals(False)
+            self.volume_slider.blockSignals(True)
+            self.volume_slider.setValue(entry["volume"])
+            self.volume_slider.blockSignals(False)
+            self.volume_value.setText(f"{self.volume_slider.value()}%")
         except Exception:
             pass
 
@@ -892,6 +926,7 @@ class MainWindow(QMainWindow):
             return
         self.selected_path = path
         self.drop_zone.set_file(path)
+        self._apply_volume_memory(path)
         self.status_label.setText(s["file_selected"])
 
     def apply_wallpaper(self):

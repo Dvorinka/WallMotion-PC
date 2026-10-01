@@ -72,7 +72,7 @@ Priorities: **P1** = do first (unblocks everything else), **P2** = next,
 - [x] **CLI interface** — `wallmotion --set file.mp4`, `--stop`, `--mute`.
   Single-instance forwarding to the running app, weekly update check
   with tray notice.
-- [ ] **Per-wallpaper volume memory** — remember mute/volume per file.
+- [x] **Per-wallpaper volume memory** — remember mute/volume per file.
 
 ## Done
 
