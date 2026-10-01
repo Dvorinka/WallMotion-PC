@@ -183,6 +183,7 @@ class TestDetectBackend:
 
     def test_gnome_backend_video_refused(self, monkeypatch):
         monkeypatch.setattr(L, "_which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(L, "hanabi_state", lambda: "missing")
         backend = L.detect_backend(self._env("wayland", "GNOME"))
         assert isinstance(backend, L.GnomeBackend)
         assert backend.set_video("/v.mp4", True, 0.3) is False
@@ -353,7 +354,7 @@ class TestHanabi:
         # freshly installed: not in `list` yet, but files are on disk
         self._fake_gext(False, False, monkeypatch)
         monkeypatch.setattr(L, "_hanabi_dir", lambda: str(tmp_path))
-        assert L.hanabi_state() == "installed"
+        assert L.hanabi_state() == "queued"
 
     def test_state_exact_match_only(self, monkeypatch):
         # a uuid sharing our prefix must not count as installed
@@ -444,7 +445,25 @@ class TestHanabi:
         assert all(s == L.HANABI_SCHEMA for s in schemas)
         assert calls[-1][-2:] == ["video-path", "/v.mp4"]
 
-    def test_gnome_stop_clears_video_path(self, monkeypatch):
+    def test_gnome_video_writes_then_enables(self, monkeypatch):
+        # installed-but-disabled: keys written BEFORE the enable call,
+        # so Hanabi's renderer launches straight into playback.
+        calls = []
+        monkeypatch.setattr(L, "hanabi_state", lambda: "installed")
+        monkeypatch.setattr(L, "session_tool",
+                            lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            L, "run_command",
+            lambda cmd, timeout=15: calls.append(cmd) or (True, "", ""))
+        assert L.GnomeBackend().set_video("/v.mp4", True, 0.5) is True
+        enable_idx = next(i for i, c in enumerate(calls)
+                          if c[:2] == ["/usr/bin/gnome-extensions",
+                                       "enable"])
+        path_idx = next(i for i, c in enumerate(calls)
+                        if c[-2:] == ["video-path", "/v.mp4"])
+        assert path_idx < enable_idx
+
+    def test_gnome_stop_disables_extension(self, monkeypatch):
         calls = []
         monkeypatch.setattr(L, "hanabi_state", lambda: "enabled")
         monkeypatch.setattr(L, "session_tool",
@@ -455,16 +474,19 @@ class TestHanabi:
         L.GnomeBackend().stop()
         assert ["set", L.HANABI_SCHEMA, "video-path", ""] \
             in [c[-4:] for c in calls]
+        assert ["/usr/bin/gnome-extensions", "disable",
+                L.HANABI_UUID] in calls
 
     def test_gnome_pause_restores_path(self, monkeypatch):
         calls = []
-        monkeypatch.setattr(L, "hanabi_state", lambda: "enabled")
+        states = iter(["enabled", "installed"])  # before/after disable
+        monkeypatch.setattr(L, "hanabi_state", lambda: next(states))
         monkeypatch.setattr(L, "session_tool",
                             lambda name: f"/usr/bin/{name}")
 
         def fake_run(cmd, timeout=15):
             calls.append(cmd)
-            if cmd[3] == "get":
+            if "get" in cmd:
                 return True, "'/v.mp4'\n", ""
             return True, "", ""
 
@@ -473,9 +495,13 @@ class TestHanabi:
         b.set_paused(True)
         tails = [c[-4:] for c in calls]
         assert ["set", L.HANABI_SCHEMA, "video-path", ""] in tails
+        assert ["/usr/bin/gnome-extensions", "disable",
+                L.HANABI_UUID] in calls
         b.set_paused(False)
         tails = [c[-4:] for c in calls]
         assert ["set", L.HANABI_SCHEMA, "video-path", "/v.mp4"] in tails
+        assert ["/usr/bin/gnome-extensions", "enable",
+                L.HANABI_UUID] in calls
 
 
 class TestRestore:

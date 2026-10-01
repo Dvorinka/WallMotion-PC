@@ -380,13 +380,14 @@ def _hanabi_gsettings(exe: str) -> list:
 
 
 def hanabi_state() -> str:
-    """'enabled' | 'installed' | 'missing' | 'unknown'.
+    """'enabled' | 'installed' | 'queued' | 'missing' | 'unknown'.
 
     `gnome-extensions list` prints one uuid per line; matching must be
     exact, another extension's uuid may share a prefix. A freshly
     installed extension does not appear in `list` until the shell
-    rescans (relogin on Wayland) - the install dir is the source of
-    truth for that case.
+    rescans (relogin on Wayland); that is 'queued'. 'installed' means
+    the shell knows the extension but it is disabled - enabling it
+    then works live.
     """
     exe = session_tool("gnome-extensions")
     if not exe:
@@ -395,8 +396,7 @@ def hanabi_state() -> str:
     if not ok:
         return "unknown"
     if HANABI_UUID not in out.splitlines():
-        return ("installed"
-                if os.path.isdir(_hanabi_dir()) else "missing")
+        return ("queued" if os.path.isdir(_hanabi_dir()) else "missing")
     ok, out, _err = run_command([exe, "list", "--enabled"], timeout=10)
     if ok and HANABI_UUID in out.splitlines():
         return "enabled"
@@ -430,6 +430,16 @@ def hanabi_install(timeout: int = 180) -> tuple:
         return (True, "")
     except Exception as e:
         return (False, repr(e))
+
+
+def hanabi_disable() -> bool:
+    """Disable Hanabi live. The only reliable way to stop a running
+    renderer - clearing video-path alone leaves it playing."""
+    exe = session_tool("gnome-extensions")
+    if not exe:
+        return False
+    ok, _out, _err = run_command([exe, "disable", HANABI_UUID], timeout=10)
+    return ok
 
 
 def hanabi_enable() -> bool:
@@ -736,14 +746,11 @@ class KdeBackend(WlrootsBackend):
 
 
 class GnomeBackend(LinuxProcessBackend):
-    """GNOME: gsettings for images. Video unsupported in v1 (needs the
-    Hanabi Shell extension - there is no public video-background API)."""
+    """GNOME: gsettings for images; video via the Hanabi Shell
+    extension - there is no public video-background API."""
 
     name = "gnome"
     session_tools = ("gsettings",)
-
-    HANABI_NOTE = ("GNOME Wayland has no video-wallpaper API. "
-                   "Install the Hanabi extension (github.com/jeffshee/gnome-ext-hanabi).")
 
     _BG_SCHEMA = "org.gnome.desktop.background"
     _BG_KEYS = ("picture-uri", "picture-uri-dark")
@@ -771,9 +778,11 @@ class GnomeBackend(LinuxProcessBackend):
         if not exe:
             return False
         self._snapshot_uris(exe)
-        # A running Hanabi video would cover the static image.
+        # A running Hanabi renderer would cover the static image -
+        # clearing video-path alone leaves it playing, so disable.
         if hanabi_state() == "enabled":
             self._hanabi_set("video-path", "")
+            hanabi_disable()
         for cmd in gsettings_commands(path, exe=exe):
             ok, _out, _err = run_command(cmd)
             if not ok:
@@ -794,10 +803,16 @@ class GnomeBackend(LinuxProcessBackend):
 
     def set_video(self, path: str, muted: bool, volume: float,
                   geometry: str | None = None) -> bool:
-        """Video via Hanabi's gsettings. Only when the extension is
-        installed AND enabled - otherwise the caller shows the
-        install/enable flow."""
-        if hanabi_state() != "enabled":
+        """Video via Hanabi's gsettings.
+
+        When the extension is installed but disabled the keys are
+        written BEFORE enabling: Hanabi's renderer reads video-path on
+        launch and opens its preferences window when it is empty -
+        writing first makes it launch straight into playback.
+        'queued' extensions still need a relogin and refuse here.
+        """
+        state = hanabi_state()
+        if state not in ("enabled", "installed"):
             return False
         exe = session_tool("gsettings")
         if not exe:
@@ -806,6 +821,8 @@ class GnomeBackend(LinuxProcessBackend):
         for cmd in hanabi_video_commands(path, muted, volume, exe=exe):
             ok, _out, _err = run_command(cmd)
             ok_all = ok and ok_all
+        if state == "installed":
+            ok_all = hanabi_enable() and ok_all
         if ok_all:
             self._hanabi_paused_path = None
         return ok_all
@@ -827,28 +844,36 @@ class GnomeBackend(LinuxProcessBackend):
         return out.strip() if ok else ""
 
     def stop(self) -> None:
-        """Stop video by clearing Hanabi's video-path."""
+        """Stop video: clear Hanabi's video-path and disable the
+        extension - the renderer ignores an empty path, only disabling
+        tears it down."""
         if hanabi_state() == "enabled" or self._hanabi_paused_path:
             self._hanabi_set("video-path", "")
+            hanabi_disable()
         self._hanabi_paused_path = None
         super().stop()
 
     def set_paused(self, paused: bool) -> None:
-        """Pause = stash video-path and clear it; resume writes it back.
-
-        Hanabi has no pause key; emptying video-path halts playback and
-        re-setting it resumes. Cheap and reversible.
-        """
-        if hanabi_state() != "enabled":
+        """Pause = stash video-path, clear it, disable the renderer;
+        resume writes the path back and re-enables. Hanabi exposes no
+        pause key, so this is the only reliable freeze."""
+        state = hanabi_state()
+        if state not in ("enabled", "installed"):
             return
         if paused:
             raw = self._hanabi_get("video-path")
             path = raw[1:-1] if len(raw) > 1 and raw.startswith("'") else raw
             if path:
                 self._hanabi_paused_path = path
-                self._hanabi_set("video-path", "")
+            self._hanabi_set("video-path", "")
+            if state == "enabled":
+                hanabi_disable()
         elif self._hanabi_paused_path:
+            # write the path before enabling so the renderer launches
+            # straight into playback
             self._hanabi_set("video-path", self._hanabi_paused_path)
+            if state == "installed":
+                hanabi_enable()
             self._hanabi_paused_path = None
 
     def set_muted(self, muted: bool) -> None:

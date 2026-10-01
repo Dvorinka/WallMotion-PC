@@ -915,17 +915,29 @@ class MainWindow(QMainWindow):
                 self.status_label.setText(
                     s["linux_hanabi_failed_m"].format(err=res.strip() or "?"))
                 return False
-        if state == "installed":
+        if state == "queued":
+            # installed but never loaded by the shell - enable queues
+            # it in enabled-extensions; it activates on next login.
             answer = QMessageBox.question(
                 self, s["linux_hanabi_enable_t"], s["linux_hanabi_enable_m"])
             if answer != QMessageBox.StandardButton.Yes:
                 return False
             hanabi_enable()
-            # enable() may only have queued the extension for next
-            # login - trust the shell's own view of what is live.
-            state = hanabi_state()
+            QMessageBox.information(
+                self, s["linux_gnome_video_t"], s["linux_hanabi_relogin_m"])
+            self.status_label.setText(s["linux_hanabi_relogin_m"])
+            return False
+        if state == "installed":
+            # the shell knows the extension - enabling works live.
+            # set_video writes video-path BEFORE enabling so Hanabi's
+            # renderer launches into playback (an empty path makes it
+            # pop its preferences window).
+            answer = QMessageBox.question(
+                self, s["linux_hanabi_enable_t"], s["linux_hanabi_enable_m"])
+            if answer != QMessageBox.StandardButton.Yes:
+                return False
+            return True
         if state != "enabled":
-            # Wayland: a freshly installed extension loads on next login.
             QMessageBox.information(
                 self, s["linux_gnome_video_t"], s["linux_hanabi_relogin_m"])
             self.status_label.setText(s["linux_hanabi_relogin_m"])

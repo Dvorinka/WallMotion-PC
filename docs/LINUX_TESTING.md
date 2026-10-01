@@ -52,10 +52,14 @@ re-test of a locally rebuilt AppImage with bundled renderers.
   `InstallRemoteExtension` 404s because Hanabi is not on
   extensions.gnome.org.
 - Post-relogin live check (Shell 50.1): Hanabi loaded enabled and
-  played the queued `video-path`. Clearing `video-path` while it is
-  playing did not stop the running renderer — a Hanabi-side quirk;
-  `gnome-extensions disable` stops it immediately, and once the shell
-  knows the extension, enable/disable work without another relogin.
+  played the queued `video-path`. Clearing `video-path` alone does
+  NOT stop a running renderer (its `setFilePath('')` just plays an
+  empty URI) — so `stop`/`pause`/`set_image` disable the extension,
+  which tears it down instantly. `set_video`/resume write
+  `video-path` BEFORE re-enabling, otherwise Hanabi opens its
+  preferences window on an empty path. Once the shell has loaded the
+  extension once, enable/disable work live without relogin. Verified:
+  set → plays, stop → extension disabled and desktop cleared.
 - `yt_dlp` and `imageio-ffmpeg` (with bundled ffmpeg) ship inside the
   AppImage — downloads are self-contained.
 - Debug log persists across CLI invocations (fixed build).

@@ -23,9 +23,10 @@ Full report: [docs/LINUX_TESTING.md](docs/LINUX_TESTING.md).
   offers to install the upstream-built zip bundled in `assets/`
   (GPL-3.0, license text shipped alongside), queues it in
   `enabled-extensions`, and drives its `video-path`/`mute`/`volume`
-  keys — pause temporarily clears `video-path`. First activation
-  needs one sign-out/in (GNOME Wayland cannot load a new extension
-  into the running session).
+  keys — stop/pause disable the extension to actually halt the
+  renderer (clearing `video-path` alone leaves it playing). First
+  activation needs one sign-out/in (GNOME Wayland cannot load a new
+  extension into the running session).
 - `assets/VERSION` version file written by CI; `--version` reports the
   release tag instead of a static dev string.
 
