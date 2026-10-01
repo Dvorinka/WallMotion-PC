@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
     QStyle,
     QSystemTrayIcon,
@@ -179,7 +180,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Live Wallpaper")
-        self.setFixedSize(430, 744)
+        self.setMinimumSize(430, 620)
+        self.resize(430, 800)
 
         self.video_window = None
         self.selected_path = None
@@ -222,9 +224,8 @@ class MainWindow(QMainWindow):
         self.rotation_timer = QTimer(self)
         self.rotation_timer.timeout.connect(self._on_rotation_timeout)
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
 
@@ -378,6 +379,15 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("status")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
+
+        # Scrollable content: the window is resizable and nothing ever
+        # overlaps or gets cut off, whatever the font scaling is.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        self.setCentralWidget(scroll)
 
         self._init_tray()
         self._load_config()

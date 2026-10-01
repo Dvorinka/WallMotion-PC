@@ -36,6 +36,10 @@ def build_stylesheet(theme: str) -> str:
 QMainWindow {{
     background-color: {t['bg']};
 }}
+QScrollArea {{
+    background: transparent;
+    border: none;
+}}
 QWidget {{
     color: {t['text']};
     font-family: "Segoe UI", sans-serif;

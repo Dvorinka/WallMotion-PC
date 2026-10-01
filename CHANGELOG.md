@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Main window is scrollable/resizable instead of fixed size (widgets
+  overlapped on larger font scaling, Stop button unreachable).
+- YouTube button text "Download & set" rendered as "Download set"
+  (`&` is a Qt mnemonic); now "Download and set".
+
 ## [1.0.6] - 2026-10-01
 
 ### Changed

@@ -52,7 +52,7 @@
   "warn_nofile_t": "No file",
   "warn_unsupported_m": "This file type is not supported.",
   "warn_unsupported_t": "Unsupported format",
-  "yt_button": "Download & set",
+  "yt_button": "Download and set",
   "yt_done": "Video downloaded, setting as wallpaper…",
   "yt_downloading": "Downloading from YouTube… {p}",
   "yt_error": "Download failed: {e}",
