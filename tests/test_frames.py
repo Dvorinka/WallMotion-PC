@@ -1,10 +1,17 @@
-"""Tests for wallmotion.frames - needs QtGui (skipped headless)."""
+"""Tests for wallmotion.frames - skipped where QtGui cannot load."""
 
 import pytest
 
-QtGui = pytest.importorskip("PySide6.QtGui")
+from wallmotion.frames import ensure_packed_rgb32
 
-from wallmotion.frames import ensure_packed_rgb32  # noqa: E402
+try:
+    from PySide6 import QtGui
+    _HAVE_QTGUI = True
+except Exception:
+    QtGui = None
+    _HAVE_QTGUI = False
+
+pytestmark = pytest.mark.skipif(not _HAVE_QTGUI, reason="QtGui unavailable")
 
 
 def _padded_rgb32(w=8, h=4, stride=40):
