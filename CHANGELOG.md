@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-01
+
 ### Fixed
 - Main window is scrollable/resizable instead of fixed size (widgets
   overlapped on larger font scaling, Stop button unreachable).
@@ -80,7 +82,8 @@ First stable release.
   debug log at `%TEMP%\live_wallpaper_debug.log`.
 - Standalone `WallMotion.exe` (PyInstaller, ~65 MB).
 
-[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/Jurek1357/WallMotion-PC/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.7
 [1.0.6]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.5
 [1.0.0]: https://github.com/Jurek1357/WallMotion-PC/releases/tag/v1.0.0
